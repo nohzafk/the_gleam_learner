@@ -32,7 +32,7 @@ pub fn from_scalar(s: Scalar) -> Scalar {
 }
 
 /// dual*
-pub fn from_float(v: Float) -> Scalar {
+pub fn to_scalar(v: Float) -> Scalar {
   Scalar(uuid(), v, end_of_chain)
 }
 
@@ -78,7 +78,7 @@ fn build_tensor_helper(
       list.range(0, s - 1)
       |> list.map(fn(i) {
         let new_idx = list.append(idx, [i])
-        f(new_idx) |> from_float |> ScalarTensor
+        f(new_idx) |> to_tensor
       })
       |> ListTensor
 
@@ -138,6 +138,11 @@ pub fn tlen(t: Tensor) -> Int {
   list.length(lst)
 }
 
+/// convert a float to tensor
+pub fn to_tensor(v: Float) -> Tensor {
+  v |> to_scalar |> ScalarTensor
+}
+
 /// convert Tensor to nested lis for debug
 pub fn tensor_to_list(tensor: Tensor) -> Dynamic {
   case tensor {
@@ -157,19 +162,31 @@ pub fn tensor(lst: Dynamic) -> Tensor {
   case dynamic.classify(lst) {
     "Int" -> {
       use x <- result.map(lst |> dynamic.int)
-      x |> int.to_float |> from_float |> ScalarTensor
+      x |> int.to_float |> to_tensor
     }
     "Float" -> {
       use x <- result.map(lst |> dynamic.float)
-      from_float(x) |> ScalarTensor
+      to_scalar(x) |> ScalarTensor
     }
     "List" -> {
       use elements <- result.try(lst |> dynamic.list(dynamic.dynamic))
       let tensors = elements |> list.map(tensor)
       tensors |> ListTensor |> Ok
     }
-    type_ -> Error([dynamic.DecodeError("float or list", type_, [])])
+    type_ -> {
+      Error([
+        dynamic.DecodeError(
+          "a number or a list of numbers",
+          type_ <> ": " <> string.inspect(lst),
+          [],
+        ),
+      ])
+    }
   }
+  |> result.try_recover(fn(error) {
+    io.debug(error)
+    Error(error)
+  })
   |> result.lazy_unwrap(fn() { panic as "Fail to decode as a Tensor" })
 }
 
@@ -288,7 +305,7 @@ pub fn map_to_scalar(f: fn(Scalar) -> Scalar, y: Tensor) -> Tensor {
 pub fn gradient_once(y, wrt) {
   let sigma = gradient_sigma(y, dict.new())
   map_to_scalar(
-    fn(s) { sigma |> dict.get(s) |> result.unwrap(0.0) |> from_float },
+    fn(s) { sigma |> dict.get(s) |> result.unwrap(0.0) |> to_scalar },
     wrt,
   )
 }
@@ -339,7 +356,7 @@ pub fn prim2(real_fn, gradient_fn) -> ScalarBinaryOperator {
 
 // test-helper
 
-pub fn is_tensor_equal(ta: Tensor, tb: Tensor) -> Bool {
+pub fn is_tensor_equal(ta: Tensor, tb: Tensor) {
   case ta, tb {
     ScalarTensor(Scalar(real: a, ..)), ScalarTensor(Scalar(real: b, ..)) ->
       float.loosely_equals(a, b, tolerace)
@@ -376,7 +393,7 @@ pub fn multiply_0_0() {
 
 pub fn divide_0_0() {
   prim2(fn(x, y) { x /. y }, fn(a, b, z) {
-    [z *. { 1.0 /. b }, z *. { 0.0 -. a } /. { b *. b }]
+    [z *. { 1.0 /. b }, z *. float.negate(a) /. { b *. b }]
   })
 }
 
@@ -397,7 +414,7 @@ pub fn expt_0_0() {
 
 /// natural exponential
 pub fn exp_0() {
-  prim1(exponential, fn(a, z) { z *. { 1.0 /. a } })
+  prim1(exponential, fn(a, z) { z *. exponential(a) })
 }
 
 /// natural logarithm
@@ -548,7 +565,7 @@ pub fn tensor_multiply_2_1(a, b) {
 // sum functions
 //------------------------------------
 fn sum_1(t) {
-  summed(t, 0.0 |> from_float |> ScalarTensor)
+  summed(t, 0.0 |> to_tensor)
 }
 
 fn summed(t, a) {
@@ -583,7 +600,7 @@ pub fn argmax_1(t) {
   })
   |> pair.second
   |> int.to_float
-  |> from_float
+  |> to_scalar
   |> ScalarTensor
 }
 
@@ -614,8 +631,9 @@ pub fn tensor_max(t) {
 //------------------------------------
 // correlate
 //------------------------------------
+/// only for internal use
 pub fn dot_product(t, u) {
-  dotted_product(t, u, 0.0 |> from_float)
+  dotted_product(t, u, 0.0 |> to_scalar)
 }
 
 pub fn dotted_product(t, u, acc) {
@@ -661,10 +679,7 @@ pub fn sum_dp(filter: Tensor, signal: Tensor, from: Int, acc: Float) -> Scalar {
           times: int.absolute_value(from),
         ))
       True, True ->
-        list.repeat(
-          0.0 |> from_float |> ScalarTensor,
-          times: int.absolute_value(from),
-        )
+        list.repeat(0.0 |> to_tensor, times: int.absolute_value(from))
         |> list.append(lst)
         |> list.append(list.repeat(
           zero_tensors(),
@@ -673,7 +688,7 @@ pub fn sum_dp(filter: Tensor, signal: Tensor, from: Int, acc: Float) -> Scalar {
     }
   }
 
-  sum_dp_helper(filter_lst, signal_lst |> slide_window, acc |> from_float)
+  sum_dp_helper(filter_lst, signal_lst |> slide_window, acc |> to_scalar)
 }
 
 fn sum_dp_helper(
@@ -718,7 +733,7 @@ pub fn tensor_correlate(bank, signal) {
 //------------------------------------
 
 pub fn rectify_0(x: Scalar) -> Scalar {
-  float.max(x.real, 0.0) |> from_float
+  float.max(x.real, 0.0) |> to_scalar
 }
 
 pub fn rectify(x: Tensor) {
