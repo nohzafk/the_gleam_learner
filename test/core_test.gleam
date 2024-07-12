@@ -1,5 +1,6 @@
 import core.{
-  line, linear, plane, quad, tensor_dot_product, tensor_dot_product_2_1,
+  cross_entropy_loss, kl_loss, l2_loss, line, linear, plane, quad,
+  tensor_dot_product, tensor_dot_product_2_1,
 }
 import gleam/dynamic
 import gleam/int
@@ -11,7 +12,7 @@ import learner.{
   tensor_divide, tensor_exp, tensor_log, tensor_multiply, tensor_multiply_2_1,
   tensor_sqr, tensor_sqrt, tensor_to_list, to_tensor,
 }
-import test_utils.{check_theta_and_gradient1, check_theta_and_gradient2}
+import test_utils.{check_theta_and_gradient1, check_theta_and_gradient_lossely}
 
 pub fn lift_to_tensor1(f: fn(Tensor) -> Tensor) -> fn(Float) -> Float {
   fn(v) {
@@ -149,14 +150,6 @@ pub fn b_targets_test() {
     [[7, 8, 9], [7, 8, 9]]
     |> dynamic.from
     |> tensor
-  let r2d3 =
-    [[3, 4, 5], [7, 8, 9]]
-    |> dynamic.from
-    |> tensor
-  let r2d4 =
-    [[7, 8, 9], [3, 4, 5]]
-    |> dynamic.from
-    |> tensor
 
   let line_theta_1 = [1.0, 2.0] |> dynamic.from |> tensor
 
@@ -292,4 +285,65 @@ pub fn b_targets_test() {
       |> dynamic.from,
     4.0,
   ))
+}
+
+pub fn c_loss_test() {
+  let r2d1 =
+    [[3, 4, 5], [3, 4, 5]]
+    |> dynamic.from
+    |> tensor
+
+  let plane_theta_0 = make_theta([0, 0, 0] |> dynamic.from, 0.0)
+
+  {
+    l2_loss(plane)(r2d1, [1.0, 1.0] |> dynamic.from |> tensor)
+    |> check_theta_and_gradient1
+  }(
+    plane_theta_0,
+    2.0 |> to_tensor,
+    make_theta(
+      [-12, -16, -20]
+        |> dynamic.from,
+      -4.0,
+    ),
+  )
+
+  let dist1 =
+    [[0.3, 0.4, 0.3], [0.1, 0.1, 0.8]]
+    |> dynamic.from
+    |> tensor
+
+  let ce_theta =
+    [[0.9, 0.05, 0.05], [0.8, 0.1, 0.1]]
+    |> dynamic.from
+    |> tensor
+
+  let bad = fn(t) {
+    fn(theta) {
+      let assert ListTensor([a, b]) = theta
+      tensor_multiply(a, t) |> tensor_add(b)
+    }
+  }
+
+  { cross_entropy_loss(bad)(dist1, dist1) |> check_theta_and_gradient_lossely }(
+    ce_theta,
+    [0.49221825504118605, 0.6033077198687743] |> dynamic.from |> tensor,
+    [
+      [-0.03178270152963002, -0.47619047619047616, -1.7846790890269149],
+      [-0.1309111274458329, -1.4285714285714284, -2.774327122153209],
+    ]
+      |> dynamic.from
+      |> tensor,
+  )
+
+  { kl_loss(bad)(dist1, dist1) |> check_theta_and_gradient_lossely }(
+    ce_theta,
+    [1.1059011281529316, 1.706692900826487] |> dynamic.from |> tensor,
+    [
+      [1.0000945635137346, 0.023289894686568724, -0.5820305479347834],
+      [5.457682729537845, 0.8448173598434958, -0.701819651351574],
+    ]
+      |> dynamic.from
+      |> tensor,
+  )
 }

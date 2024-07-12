@@ -6,9 +6,9 @@ import gleam/int
 import gleam/io
 import gleam/list
 import learner.{
-  ListTensor, rank, shape, tensor_add, tensor_divide, tensor_exp, tensor_max,
-  tensor_minus, tensor_multiply, tensor_multiply_2_1, tensor_sqr, tensor_sum,
-  tensor_sum_cols, tensor_to_list, to_tensor,
+  ListTensor, rank, shape, tensor_add, tensor_divide, tensor_exp, tensor_log,
+  tensor_max, tensor_minus, tensor_multiply, tensor_multiply_2_1, tensor_sqr,
+  tensor_sum, tensor_sum_cols, tensor_to_list, to_tensor,
 }
 
 //------------------------------------
@@ -120,6 +120,33 @@ pub fn l2_loss(target) {
       let pred_ys = theta |> target(xs)
 
       ys |> tensor_minus(pred_ys) |> tensor_sqr |> tensor_sum
+    }
+  }
+}
+
+pub fn cross_entropy_loss(target) {
+  fn(xs, ys) {
+    fn(theta) {
+      let pred_ys = theta |> target(xs)
+      let assert Ok(num_classes) = shape(ys) |> list.last
+
+      tensor_log(pred_ys)
+      |> tensor_dot_product(ys, _)
+      |> tensor_divide(num_classes |> int.to_float |> to_tensor)
+      |> tensor_multiply(-1.0 |> to_tensor)
+    }
+  }
+}
+
+pub fn kl_loss(target) {
+  fn(xs, ys) {
+    fn(theta) {
+      let pred_ys = theta |> target(xs)
+
+      tensor_divide(pred_ys, ys)
+      |> tensor_log
+      |> tensor_multiply(pred_ys)
+      |> tensor_sum
     }
   }
 }

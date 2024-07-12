@@ -1,6 +1,6 @@
-import gleeunit/should
 import gleam/string
-import learner.{ListTensor, gradient_operator, tensor_to_list}
+import gleeunit/should
+import learner.{ListTensor, gradient_operator, is_tensor_equal, tensor_to_list}
 
 pub fn check_theta_and_gradient1(f) {
   fn(t, answers, gradients) {
@@ -26,5 +26,13 @@ pub fn check_theta_and_gradient2(f) {
     |> tensor_to_list
     |> string.inspect
     |> should.equal(gradients)
+  }
+}
+
+pub fn check_theta_and_gradient_lossely(f) {
+  fn(t, answers, gradients) {
+    f(t) |> is_tensor_equal(answers) |> should.be_true
+
+    gradient_operator(f, t) |> is_tensor_equal(gradients) |> should.be_true
   }
 }
