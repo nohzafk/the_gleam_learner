@@ -1,0 +1,13 @@
+name = "the_gleam_learner"
+version = "1.0.0"
+
+[dependencies]
+gleam_stdlib = ">= 0.34.0 and < 2.0.0"
+gleam_community_maths = ">= 1.1.1 and < 2.0.0"
+nx = ">= 0.7.3 and < 1.0.0"
+gluid = ">= 1.0.0 and < 2.0.0"
+mat = ">= 1.0.0 and < 2.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+
