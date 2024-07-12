@@ -12,6 +12,8 @@ import gleam_community/maths/elementary.{exponential, natural_logarithm}
 import gluid
 import mat
 
+const tolerace = 0.0001
+
 pub fn uuid() {
   gluid.guidv4()
 }
@@ -309,13 +311,13 @@ fn gradient_sigma_list(lst: List(Tensor), sigma) {
 }
 
 // primitive
-pub type ScalarOperator1 =
+pub type ScalarUnaryOperator =
   fn(Scalar) -> Scalar
 
-pub type ScalarOperator2 =
+pub type ScalarBinaryOperator =
   fn(Scalar, Scalar) -> Scalar
 
-pub fn prim1(real_fn, gradient_fn) -> ScalarOperator1 {
+pub fn prim1(real_fn, gradient_fn) -> ScalarUnaryOperator {
   fn(scalar: Scalar) {
     Scalar(uuid(), real_fn(scalar.real), fn(_d, z, sigma) {
       sigma
@@ -324,7 +326,7 @@ pub fn prim1(real_fn, gradient_fn) -> ScalarOperator1 {
   }
 }
 
-pub fn prim2(real_fn, gradient_fn) -> ScalarOperator2 {
+pub fn prim2(real_fn, gradient_fn) -> ScalarBinaryOperator {
   fn(s1: Scalar, s2: Scalar) {
     Scalar(uuid(), real_fn(s1.real, s2.real), fn(_d, z, sigma) {
       let assert [ga, gb] = gradient_fn(s1.real, s2.real, z)
@@ -336,7 +338,6 @@ pub fn prim2(real_fn, gradient_fn) -> ScalarOperator2 {
 }
 
 // test-helper
-const tolerace = 0.0001
 
 pub fn is_tensor_equal(ta: Tensor, tb: Tensor) -> Bool {
   case ta, tb {
@@ -432,20 +433,20 @@ pub fn sqrt_0() {
   )
 }
 
-pub type TensorOperator1 =
+pub type TensorUnaryOperator =
   fn(Tensor) -> Tensor
 
-pub type TensorOperator2 =
+pub type TensorBinaryOperator =
   fn(Tensor, Tensor) -> Tensor
 
-fn scalar_fn_wrapper1(f: ScalarOperator1) -> TensorOperator1 {
+fn lift_scalar_unary_op(f: ScalarUnaryOperator) -> TensorUnaryOperator {
   fn(t: Tensor) {
     let assert ScalarTensor(a) = t
     f(a) |> ScalarTensor
   }
 }
 
-fn scalar_fn_wrapper2(f: ScalarOperator2) -> TensorOperator2 {
+fn lift_scalar_binary_op(f: ScalarBinaryOperator) -> TensorBinaryOperator {
   fn(ta: Tensor, tb: Tensor) {
     let assert ScalarTensor(a) = ta
     let assert ScalarTensor(b) = tb
@@ -457,47 +458,47 @@ fn scalar_fn_wrapper2(f: ScalarOperator2) -> TensorOperator2 {
 // Extended functions.
 //------------------------------------
 pub fn tensor_multiply(a, b) {
-  let f = multiply_0_0() |> scalar_fn_wrapper2 |> ext2(0, 0)
+  let f = multiply_0_0() |> lift_scalar_binary_op |> ext2(0, 0)
   f(a, b)
 }
 
 pub fn tensor_add(a, b) {
-  let f = add_0_0() |> scalar_fn_wrapper2 |> ext2(0, 0)
+  let f = add_0_0() |> lift_scalar_binary_op |> ext2(0, 0)
   f(a, b)
 }
 
 pub fn tensor_minus(a, b) {
-  let f = minus_0_0() |> scalar_fn_wrapper2 |> ext2(0, 0)
+  let f = minus_0_0() |> lift_scalar_binary_op |> ext2(0, 0)
   f(a, b)
 }
 
 pub fn tensor_divide(a, b) {
-  let f = divide_0_0() |> scalar_fn_wrapper2 |> ext2(0, 0)
+  let f = divide_0_0() |> lift_scalar_binary_op |> ext2(0, 0)
   f(a, b)
 }
 
 pub fn tensor_expt(a, b) {
-  let f = expt_0_0() |> scalar_fn_wrapper2 |> ext2(0, 0)
+  let f = expt_0_0() |> lift_scalar_binary_op |> ext2(0, 0)
   f(a, b)
 }
 
 pub fn tensor_exp(a) {
-  let f = exp_0() |> scalar_fn_wrapper1 |> ext1(0)
+  let f = exp_0() |> lift_scalar_unary_op |> ext1(0)
   f(a)
 }
 
 pub fn tensor_log(a) {
-  let f = log_0() |> scalar_fn_wrapper1 |> ext1(0)
+  let f = log_0() |> lift_scalar_unary_op |> ext1(0)
   f(a)
 }
 
 pub fn tensor_abs(a) {
-  let f = abs_0() |> scalar_fn_wrapper1 |> ext1(0)
+  let f = abs_0() |> lift_scalar_unary_op |> ext1(0)
   f(a)
 }
 
 pub fn tensor_sqrt(a) {
-  let f = sqrt_0() |> scalar_fn_wrapper1 |> ext1(0)
+  let f = sqrt_0() |> lift_scalar_unary_op |> ext1(0)
   f(a)
 }
 
@@ -508,16 +509,26 @@ pub fn tensor_sqr(x) {
 //------------------------------------
 // Comparators
 //------------------------------------
-fn comparator(f) {
-  fn(ta, tb) {
-    let assert ScalarTensor(sa) = ta
-    let assert ScalarTensor(sb) = tb
-    f(sa.real, sb.real)
+fn tensor_comparator(
+  comparator: fn(Scalar, Scalar) -> Bool,
+) -> fn(Tensor, Tensor) -> Bool {
+  fn(t: Tensor, u: Tensor) {
+    let assert ScalarTensor(s_t) = t
+    let assert ScalarTensor(s_u) = u
+    comparator(s_t, s_u)
   }
 }
 
+fn comparator(f: fn(Float, Float) -> Bool) -> fn(Scalar, Scalar) -> Bool {
+  fn(sa: Scalar, sb: Scalar) { f(sa.real, sb.real) }
+}
+
 pub fn greater_0_0(a, b) {
-  comparator(fn(x, y) { x >. y })(a, b)
+  { fn(x, y) { x >. y } |> comparator }(a, b)
+}
+
+pub fn less_0_0(a, b) {
+  { fn(x, y) { x <. y } |> comparator }(a, b)
 }
 
 //------------------------------------
@@ -565,7 +576,7 @@ pub fn argmax_1(t) {
   let assert ListTensor([head, ..] as lst) = t
   lst
   |> list.index_fold(#(head, 0), fn(acc, item, index) {
-    case greater_0_0(item, acc.0) {
+    case { greater_0_0 |> tensor_comparator }(item, acc.0) {
       True -> #(item, index)
       _ -> acc
     }
@@ -588,7 +599,7 @@ pub fn max_1(t) {
   let assert ListTensor([head, ..] as lst) = t
   lst
   |> list.fold(head, fn(acc, item) {
-    case greater_0_0(item, acc) {
+    case { greater_0_0 |> tensor_comparator }(item, acc) {
       True -> item
       _ -> acc
     }
@@ -700,4 +711,17 @@ pub fn correlate_3_2(bank, signal) {
 pub fn tensor_correlate(bank, signal) {
   let f = correlate_3_2 |> ext2(3, 2)
   f(bank, signal)
+}
+
+//------------------------------------
+// rectify
+//------------------------------------
+
+pub fn rectify_0(x: Scalar) -> Scalar {
+  float.max(x.real, 0.0) |> from_float
+}
+
+pub fn rectify(x: Tensor) {
+  let f = rectify_0 |> lift_scalar_unary_op |> ext1(0)
+  f(x)
 }

@@ -10,12 +10,12 @@ import gleeunit/should
 
 import learner.{
   type Scalar, ListTensor, Scalar, ScalarTensor, build_tensor,
-  build_tensor_from_tensors, correlate_3_2, correlation_overlap, desc_t, desc_u,
-  dot_product, dotted_product, ext1, ext2, from_float, get_real, gradient_once,
+  build_tensor_from_tensors, correlation_overlap, desc_t, desc_u, dot_product,
+  dotted_product, ext1, ext2, from_float, get_real, gradient_once,
   gradient_operator, is_tensor_equal, map_to_scalar, of_rank, of_ranks, rank,
-  shape, size_of, sum_dp, tensor, tensor1_map, tensor_argmax, tensor_correlate,
-  tensor_max, tensor_minus, tensor_multiply, tensor_multiply_2_1, tensor_sqr,
-  tensor_sum, tensor_sum_cols, tensor_to_list,
+  rectify, rectify_0, shape, size_of, sum_dp, tensor, tensor1_map, tensor_argmax,
+  tensor_correlate, tensor_max, tensor_minus, tensor_multiply,
+  tensor_multiply_2_1, tensor_sqr, tensor_sum, tensor_sum_cols, tensor_to_list,
 }
 
 pub fn main() {
@@ -556,4 +556,55 @@ pub fn dot_product_test() {
     ]
     |> dynamic.from,
   )
+}
+
+fn lift_float2(f: fn(Scalar, Scalar) -> Scalar) -> fn(Float, Float) -> Float {
+  fn(x, y) {
+    f(x |> from_float, y |> from_float)
+    |> get_real
+  }
+}
+
+fn lift_float1(f: fn(Scalar) -> Scalar) -> fn(Float) -> Float {
+  fn(x) { x |> from_float |> f |> get_real }
+}
+
+pub fn recify_test() {
+  { rectify_0 |> lift_float1 }(3.0) |> should.equal(3.0)
+  { rectify_0 |> lift_float1 }(-3.0) |> should.equal(0.0)
+
+  { learner.add_0_0() |> lift_float2 }(0.0, -3.0)
+  |> { rectify_0 |> lift_float1 }
+  |> should.equal(0.0)
+
+  { learner.multiply_0_0() |> lift_float2 }(1.0, -3.0)
+  |> { rectify_0 |> lift_float1 }
+  |> should.equal(0.0)
+
+  { learner.add_0_0() |> lift_float2 }(0.0, 3.0)
+  |> { rectify_0 |> lift_float1 }
+  |> should.equal(3.0)
+
+  { learner.multiply_0_0() |> lift_float2 }(1.0, 3.0)
+  |> { rectify_0 |> lift_float1 }
+  |> should.equal(3.0)
+
+  tensor(
+    [1.0, 2.3, -1.1]
+    |> dynamic.from,
+  )
+  |> rectify
+  |> tensor_to_list
+  |> should.equal(
+    [1.0, 2.3, 0.0]
+    |> dynamic.from,
+  )
+
+  learner.tensor_add(
+    tensor([1.0, 2.3, -1.1] |> dynamic.from),
+    tensor([1.0, 2.3, -1.1] |> dynamic.from),
+  )
+  |> rectify
+  |> tensor_to_list
+  |> should.equal([2.0, 4.6, 0.0] |> dynamic.from)
 }
