@@ -1,6 +1,7 @@
 import core.{
-  cross_entropy_loss, kl_loss, l2_loss, line, linear, plane, quad,
-  tensor_dot_product, tensor_dot_product_2_1,
+  Hyperparameters, cross_entropy_loss, gradient_descent, kl_loss, l2_loss, line,
+  linear, plane, quad, revise, smooth, tensor_dot_product,
+  tensor_dot_product_2_1, zeros,
 }
 import gleam/dynamic
 import gleam/int
@@ -8,9 +9,9 @@ import gleam/io
 import gleam/list
 import gleeunit/should
 import learner.{
-  type Tensor, ListTensor, ScalarTensor, gradient_operator, tensor, tensor_add,
-  tensor_divide, tensor_exp, tensor_log, tensor_multiply, tensor_multiply_2_1,
-  tensor_sqr, tensor_sqrt, tensor_to_list, to_tensor,
+  type Tensor, ListTensor, ScalarTensor, gradient_of, tensor, tensor_add,
+  tensor_divide, tensor_exp, tensor_log, tensor_minus, tensor_multiply,
+  tensor_multiply_2_1, tensor_sqr, tensor_sqrt, tensor_to_list, to_tensor,
 }
 import test_utils.{check_theta_and_gradient1, check_theta_and_gradient_lossely}
 
@@ -51,18 +52,18 @@ pub fn a_core_test() {
     |> should.equal(20.0)
 
     { tensor_add |> tensor_op_wrapper }
-    |> gradient_operator(t)
+    |> gradient_of(t)
     |> tensor_should_equal([1.0, 1.0] |> dynamic.from |> tensor)
 
     { tensor_multiply |> lift_to_tensor2 }(a, b)
     |> should.equal(91.0)
 
     { tensor_multiply |> tensor_op_wrapper }
-    |> gradient_operator(t)
+    |> gradient_of(t)
     |> tensor_should_equal([13.0, 7.0] |> dynamic.from |> tensor)
 
     { tensor_divide |> tensor_op_wrapper }
-    |> gradient_operator(t)
+    |> gradient_of(t)
     |> learner.is_tensor_equal([0.07692, -0.04142] |> dynamic.from |> tensor)
     |> should.be_true
   }
@@ -77,7 +78,7 @@ pub fn a_core_test() {
     |> should.be_true
 
     tensor_exp
-    |> gradient_operator(a)
+    |> gradient_of(a)
     |> learner.is_tensor_equal(
       [1096.6331, 2980.9579, 8103.0839] |> dynamic.from |> tensor,
     )
@@ -90,7 +91,7 @@ pub fn a_core_test() {
     |> should.be_true
 
     tensor_log
-    |> gradient_operator(a)
+    |> gradient_of(a)
     |> learner.is_tensor_equal(
       [0.1428, 0.125, 0.1111] |> dynamic.from |> tensor,
     )
@@ -244,7 +245,7 @@ pub fn b_targets_test() {
     |> dynamic.from
     |> tensor,
   )
-  |> gradient_operator(make_theta(
+  |> gradient_of(make_theta(
     [[1, 2, 3], [1, 2, 4]]
       |> dynamic.from,
     2.0,
@@ -275,7 +276,7 @@ pub fn b_targets_test() {
     |> dynamic.from
     |> tensor,
   )
-  |> gradient_operator(make_theta(
+  |> gradient_of(make_theta(
     [[1, 2, 3], [1, 2, 3]]
       |> dynamic.from,
     2.0,
@@ -346,4 +347,33 @@ pub fn c_loss_test() {
       |> dynamic.from
       |> tensor,
   )
+}
+
+pub fn gradient_descent_test() {
+  revise(fn(x) { x + 1 }, 10, 0) |> should.equal(10)
+
+  let obj = fn(theta) {
+    let assert ListTensor([a, ..]) = theta
+    30.0 |> to_tensor |> tensor_minus(a) |> tensor_sqr
+  }
+
+  let id = fn(x) { x }
+
+  let hp = Hyperparameters(revs: 500, alpha: 0.01)
+
+  let naked_gd =
+    gradient_descent(hp, id, id, fn(w, g) {
+      tensor_multiply(g, hp.alpha |> to_tensor)
+      |> tensor_minus(w, _)
+    })
+
+  naked_gd(obj, [3.0] |> dynamic.from |> tensor)
+  |> learner.is_tensor_equal([29.998892352401082] |> dynamic.from |> tensor)
+}
+
+pub fn d_gd_common_test() {
+  zeros([1, 2, 3] |> dynamic.from |> tensor)
+  |> tensor_should_equal([0, 0, 0] |> dynamic.from |> tensor)
+
+  smooth(0.9, 31.0, -8.0) |> should.equal(27.1)
 }

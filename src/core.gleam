@@ -2,13 +2,16 @@
 //// the tensor implementation details in inside learner.gleam
 //// later on might use a flat-array tensor
 
+import gleam/float
+import gleam/function
 import gleam/int
 import gleam/io
 import gleam/list
 import learner.{
-  ListTensor, rank, shape, tensor_add, tensor_divide, tensor_exp, tensor_log,
-  tensor_max, tensor_minus, tensor_multiply, tensor_multiply_2_1, tensor_sqr,
-  tensor_sum, tensor_sum_cols, tensor_to_list, to_tensor,
+  type Tensor, ListTensor, ext1, gradient_of, rank, shape, tensor1_map,
+  tensor2_map, tensor_add, tensor_divide, tensor_exp, tensor_log, tensor_max,
+  tensor_minus, tensor_multiply, tensor_multiply_2_1, tensor_sqr, tensor_sum,
+  tensor_sum_cols, tensor_to_list, to_tensor,
 }
 
 //------------------------------------
@@ -168,6 +171,42 @@ pub type Hyperparameters {
   Hyperparameters(revs: Int, alpha: Float)
 }
 
-pub fn gradient_descent(hp: Hyperparameters, inflate, deflat, update) {
-  todo
+pub fn gradient_descent(hp: Hyperparameters, inflate, deflate, update) {
+  fn(obj, theta) {
+    let f = fn(big_theta: Tensor) {
+      tensor2_map(
+        big_theta,
+        gradient_of(obj, tensor1_map(big_theta, deflate)),
+        update,
+      )
+    }
+
+    tensor1_map(theta, inflate) |> revise(f, hp.revs, _) |> tensor1_map(deflate)
+  }
+}
+
+//------------------------------------
+// E-gd-common
+//------------------------------------
+pub fn zeros(x) {
+  let f = fn(_) { 0.0 |> to_tensor } |> ext1(0)
+  f(x)
+}
+
+pub fn smooth(decay_rate, average, g) {
+  decay_rate *. average +. { 1.0 -. decay_rate } *. g
+}
+
+const epsilon = 1.0e-8
+
+//------------------------------------
+// F-naked
+//------------------------------------
+
+pub fn naked_i(x) {
+  function.identity(x)
+}
+
+pub fn naked_d(x) {
+  function.identity(x)
 }

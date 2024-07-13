@@ -8,7 +8,7 @@ import gleeunit/should
 import learner.{
   type Scalar, ListTensor, Scalar, ScalarTensor, build_tensor,
   build_tensor_from_tensors, correlation_overlap, desc_t, desc_u, dot_product,
-  dotted_product, ext1, ext2, get_real, gradient_once, gradient_operator,
+  dotted_product, ext1, ext2, get_real, gradient_of, gradient_once,
   is_tensor_equal, map_to_scalar, of_rank, of_ranks, rank, rectify, rectify_0,
   shape, size_of, sum_dp, tensor, tensor1_map, tensor_argmax, tensor_correlate,
   tensor_max, tensor_minus, tensor_multiply, tensor_multiply_2_1, tensor_sqr,
@@ -316,7 +316,7 @@ pub fn tensor_sum_2_test() {
 
   is_tensor_equal(a, tensor([12, 21] |> dynamic.from))
 
-  gradient_operator(fn(b) { tensor_multiply(b, b) |> tensor_sum }, a)
+  gradient_of(fn(b) { tensor_multiply(b, b) |> tensor_sum }, a)
   |> is_tensor_equal(
     [[6.0, 8.0, 10.0], [12.0, 14.0, 16.0]] |> dynamic.from |> tensor,
   )
@@ -371,7 +371,7 @@ pub fn tensor_sum_3_test() {
     |> is_tensor_equal([9, 11, 13] |> dynamic.from |> tensor)
     |> should.be_true
 
-    gradient_operator(fn(b) { tensor_multiply(b, b) |> tensor_sum_cols }, a)
+    gradient_of(fn(b) { tensor_multiply(b, b) |> tensor_sum_cols }, a)
     |> is_tensor_equal([[6, 8, 10], [12, 14, 16]] |> dynamic.from |> tensor)
     |> should.be_true
   }
@@ -471,7 +471,7 @@ pub fn dot_product_test() {
 
   let gs =
     fn(a, b) {
-      gradient_operator(
+      gradient_of(
         fn(t) {
           let assert ListTensor([a, b]) = t
           tensor_correlate(a, b)

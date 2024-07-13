@@ -290,7 +290,7 @@ pub fn desc_u(g, t: Tensor, u: Tensor) {
 //----------------------------
 // Reverse-mode Auto Differentiation
 //----------------------------
-pub fn gradient_operator(f, theta: Tensor) -> Tensor {
+pub fn gradient_of(f, theta: Tensor) -> Tensor {
   let wrt = map_to_scalar(from_scalar, theta)
   gradient_once(f(wrt), wrt)
 }
