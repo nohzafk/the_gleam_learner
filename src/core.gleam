@@ -5,13 +5,12 @@
 import gleam/float
 import gleam/function
 import gleam/int
-import gleam/io
 import gleam/list
 import learner.{
-  type Tensor, ListTensor, ext1, gradient_of, rank, shape, tensor1_map,
-  tensor2_map, tensor_add, tensor_divide, tensor_exp, tensor_log, tensor_max,
-  tensor_minus, tensor_multiply, tensor_multiply_2_1, tensor_sqr, tensor_sum,
-  tensor_sum_cols, tensor_to_list, to_tensor,
+  type Tensor, ListTensor, ScalarTensor, ext1, gradient_of, rank, shape,
+  tensor1_map, tensor2_map, tensor_add, tensor_divide, tensor_exp, tensor_log,
+  tensor_max, tensor_minus, tensor_multiply, tensor_multiply_2_1, tensor_sqr,
+  tensor_sum, tensor_sum_cols, to_tensor, trefs,
 }
 
 //------------------------------------
@@ -168,20 +167,64 @@ pub fn revise(f, revs, theta) {
 }
 
 pub type Hyperparameters {
-  Hyperparameters(revs: Int, alpha: Float)
+  Hyperparameters(
+    revs: Int,
+    alpha: Float,
+    mu: Float,
+    beta: Float,
+    batch_size: Int,
+  )
+}
+
+pub fn hp_new(revs revs, alpha alpha) {
+  Hyperparameters(revs, alpha, 0.0, 0.0, 0)
+}
+
+pub fn hp_new_mu(hp hp: Hyperparameters, mu mu: Float) {
+  Hyperparameters(
+    revs: hp.revs,
+    alpha: hp.alpha,
+    mu: mu,
+    beta: hp.beta,
+    batch_size: hp.batch_size,
+  )
+}
+
+pub fn hp_new_beta(hp hp: Hyperparameters, beta beta: Float) {
+  Hyperparameters(
+    revs: hp.revs,
+    alpha: hp.alpha,
+    mu: hp.mu,
+    beta: beta,
+    batch_size: hp.batch_size,
+  )
+}
+
+pub fn hp_new_batch_size(hp hp: Hyperparameters, batch_size batch_size: Int) {
+  Hyperparameters(
+    revs: hp.revs,
+    alpha: hp.alpha,
+    mu: hp.mu,
+    beta: hp.beta,
+    batch_size: batch_size,
+  )
 }
 
 pub fn gradient_descent(hp: Hyperparameters, inflate, deflate, update) {
   fn(obj, theta) {
+    let tensor_update = hp |> update
+
     let f = fn(big_theta: Tensor) {
       tensor2_map(
         big_theta,
         gradient_of(obj, tensor1_map(big_theta, deflate)),
-        update,
+        tensor_update,
       )
     }
 
-    tensor1_map(theta, inflate) |> revise(f, hp.revs, _) |> tensor1_map(deflate)
+    tensor1_map(theta, inflate)
+    |> revise(f, hp.revs, _)
+    |> tensor1_map(deflate)
   }
 }
 
@@ -199,14 +242,181 @@ pub fn smooth(decay_rate, average, g) {
 
 const epsilon = 1.0e-8
 
+fn lift_update1(
+  update: fn(Float, Float) -> Float,
+) -> fn(Tensor, Tensor) -> Tensor {
+  fn(p, g) { update(p |> tensor_to_float, g |> tensor_to_float) |> to_tensor }
+}
+
+fn lift_update2(
+  update: fn(List(Float), Float) -> List(Float),
+) -> fn(Tensor, Tensor) -> Tensor {
+  fn(pa, g) {
+    let assert ListTensor([p0, p1]) = pa
+    update([p0, p1] |> list.map(tensor_to_float), g |> tensor_to_float)
+    |> list.map(to_tensor)
+    |> ListTensor
+  }
+}
+
+fn lift_update3(
+  update: fn(List(Float), Float) -> List(Float),
+) -> fn(Tensor, Tensor) -> Tensor {
+  fn(pa, g) {
+    let assert ListTensor([p0, p1, p2]) = pa
+    update([p0, p1, p2] |> list.map(tensor_to_float), g |> tensor_to_float)
+    |> list.map(to_tensor)
+    |> ListTensor
+  }
+}
+
 //------------------------------------
 // F-naked
 //------------------------------------
 
-pub fn naked_i(x) {
+fn naked_i(x) {
   function.identity(x)
 }
 
-pub fn naked_d(x) {
+fn naked_d(x) {
   function.identity(x)
+}
+
+fn naked_u(hp: Hyperparameters) {
+  fn(p, g) { p -. hp.alpha *. g }
+  |> lift_update1
+}
+
+pub fn naked_gradient_descent(hp: Hyperparameters) {
+  gradient_descent(hp, naked_i, naked_d, naked_u)
+}
+
+//------------------------------------
+// G-velocity
+//------------------------------------
+fn velocity_i(p: Tensor) {
+  [p, zeros(p)] |> ListTensor
+}
+
+fn velocity_d(pa: Tensor) {
+  let assert ListTensor([p0, ..]) = pa
+  p0
+}
+
+/// momentum gradient descent
+/// That's because we multiply the velocity v by a constant mu.
+/// The resulting expression is analogous to the formula of momentum in physics.
+fn velocity_u(hp: Hyperparameters) {
+  fn(pa, g) {
+    // pa: parameter P0 accompanied by its velocity P1 from the last revision
+    let assert [p0, p1] = pa
+
+    // μ * p1 - α * g
+    let v = hp.mu *. p1 -. hp.alpha *. g
+
+    // p0 + μ * p1 - α * g
+    [p0 +. v, v]
+  }
+  |> lift_update2
+}
+
+pub fn velocity_gradient_descent(hp: Hyperparameters) {
+  gradient_descent(hp, velocity_i, velocity_d, velocity_u)
+}
+
+//------------------------------------
+// H-rms
+//------------------------------------
+// RMS: Root Mean Square
+//
+// adaptive learning rate gradient descent, uses a moving average of the squared
+// gradients to smooth out the learning rate adaptation.
+//
+// use smooth to historically accumulate a modifier that is based on g.
+fn rms_i(p: Tensor) {
+  [p, zeros(p)] |> ListTensor
+}
+
+fn rms_d(pa: Tensor) {
+  let assert ListTensor([p0, ..]) = pa
+  p0
+}
+
+pub fn tensor_to_float(t: Tensor) -> Float {
+  let assert ScalarTensor(s) = t
+  s.real
+}
+
+fn rms_u(hp: Hyperparameters) {
+  fn(pa, g) {
+    let assert [p0, p1] = pa
+
+    let r = smooth(hp.beta, p1, g *. g)
+    let assert Ok(r_sqrt) = float.square_root(r)
+
+    let alpha_hat = hp.alpha /. { r_sqrt +. epsilon }
+    // p0 - (α / (r_sqrt + ϵ)) * g
+    [p0 -. alpha_hat *. g, r]
+  }
+  |> lift_update2
+}
+
+pub fn rms_gradient_descent(hp: Hyperparameters) {
+  gradient_descent(hp, rms_i, rms_d, rms_u)
+}
+
+//------------------------------------
+// I-adam
+//------------------------------------
+fn adam_i(p: Tensor) {
+  let zeroed = zeros(p)
+  [p, zeroed, zeroed] |> ListTensor
+}
+
+fn adam_d(pa: Tensor) {
+  let assert ListTensor([p0, ..]) = pa
+  p0
+}
+
+// ADAM: adaptive moment estimation.
+fn adam_u(hp: Hyperparameters) {
+  fn(pa, g) {
+    let assert [p0, p1, p2] = pa
+
+    let r = smooth(hp.beta, p2, g *. g)
+    let assert Ok(r_sqrt) = float.square_root(r)
+    let alpha_hat = hp.alpha /. { r_sqrt +. epsilon }
+
+    let v = smooth(hp.mu, p1, g)
+    // The accompaniment v is known as the gradient's 1st moment.
+    // The accompaniment r is known as the gradient's 2nd moment.
+    // p0 - (α / (r_sqrt + ϵ)) * v
+    [p0 -. alpha_hat *. v, v, r]
+  }
+  |> lift_update3
+}
+
+pub fn adam_gradient_descent(hp: Hyperparameters) {
+  gradient_descent(hp, adam_i, adam_d, adam_u)
+}
+
+//------------------------------------
+// J-stochastic
+//------------------------------------
+pub fn samples(n: Int, size: Int) -> List(Int) {
+  list.range(0, n - 1) |> list.shuffle |> list.take(size)
+}
+
+pub fn sampling_obj(hp: Hyperparameters) {
+  fn(expectant, xs, ys) {
+    fn(theta) {
+      let assert [n, ..] = shape(xs)
+      let sample_indices = samples(n, hp.batch_size)
+
+      let sampled_xs = trefs(xs, sample_indices)
+      let sampled_ys = trefs(ys, sample_indices)
+
+      theta |> expectant(sampled_xs, sampled_ys)
+    }
+  }
 }

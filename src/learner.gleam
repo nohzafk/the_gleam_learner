@@ -7,6 +7,7 @@ import gleam/io
 import gleam/list
 import gleam/pair
 import gleam/result
+import gleam/set
 import gleam/string
 import gleam_community/maths/elementary.{exponential, natural_logarithm}
 import gluid
@@ -136,6 +137,17 @@ fn build_tensor_from_tensors_helper(
 pub fn tlen(t: Tensor) -> Int {
   let assert ListTensor(lst) = t
   list.length(lst)
+}
+
+pub fn trefs(t: Tensor, b: List(Int)) -> Tensor {
+  let assert ListTensor(lst) = t
+  let index_set = set.from_list(b)
+
+  lst
+  |> list.index_map(fn(elem, index) { #(index, elem) })
+  |> list.filter(fn(pair) { set.contains(index_set, pair.0) })
+  |> list.map(fn(pair) { pair.1 })
+  |> ListTensor
 }
 
 /// convert a float to tensor
@@ -380,15 +392,15 @@ pub fn is_tensor_equal(ta: Tensor, tb: Tensor) {
 //----------------------------
 
 pub fn add_0_0() {
-  prim2(fn(x, y) { x +. y }, fn(_a, _b, z) { [z, z] })
+  prim2(float.add, fn(_a, _b, z) { [z, z] })
 }
 
 pub fn minus_0_0() {
-  prim2(fn(x, y) { x -. y }, fn(_a, _b, z) { [z, float.negate(z)] })
+  prim2(float.subtract, fn(_a, _b, z) { [z, float.negate(z)] })
 }
 
 pub fn multiply_0_0() {
-  prim2(fn(x, y) { x *. y }, fn(a, b, z) { [b *. z, a *. z] })
+  prim2(float.multiply, fn(a, b, z) { [b *. z, a *. z] })
 }
 
 pub fn divide_0_0() {
@@ -526,26 +538,56 @@ pub fn tensor_sqr(x) {
 //------------------------------------
 // Comparators
 //------------------------------------
-fn tensor_comparator(
+fn lift_scalar_comparator(
   comparator: fn(Scalar, Scalar) -> Bool,
 ) -> fn(Tensor, Tensor) -> Bool {
   fn(t: Tensor, u: Tensor) {
-    let assert ScalarTensor(s_t) = t
-    let assert ScalarTensor(s_u) = u
-    comparator(s_t, s_u)
+    case t, u {
+      ScalarTensor(s_t), ScalarTensor(s_u) -> comparator(s_t, s_u)
+      _, _ -> panic
+    }
   }
 }
 
-fn comparator(f: fn(Float, Float) -> Bool) -> fn(Scalar, Scalar) -> Bool {
-  fn(sa: Scalar, sb: Scalar) { f(sa.real, sb.real) }
+fn lift_float_comparator(
+  comparator: fn(Float, Float) -> Bool,
+) -> fn(Scalar, Scalar) -> Bool {
+  fn(sa: Scalar, sb: Scalar) { comparator(sa.real, sb.real) }
 }
 
 pub fn greater_0_0(a, b) {
-  { fn(x, y) { x >. y } |> comparator }(a, b)
+  { fn(x, y) { x >. y } |> lift_float_comparator }(a, b)
 }
 
 pub fn less_0_0(a, b) {
-  { fn(x, y) { x <. y } |> comparator }(a, b)
+  { fn(x, y) { x <. y } |> lift_float_comparator }(a, b)
+}
+
+pub fn equal_0_0(a, b) {
+  { fn(x, y) { x == y } |> lift_float_comparator }(a, b)
+}
+
+fn tensorized_comparators(comparator) {
+  fn(a: Scalar, b: Scalar) {
+    case comparator(a, b) {
+      True -> to_scalar(1.0)
+      False -> to_scalar(0.0)
+    }
+  }
+  |> lift_scalar_binary_op
+  |> ext2(0, 0)
+}
+
+pub fn tensorized_cmp_greater(a, b) {
+  { greater_0_0 |> tensorized_comparators }(a, b)
+}
+
+pub fn tensorized_cmp_less(a, b) {
+  { less_0_0 |> tensorized_comparators }(a, b)
+}
+
+pub fn tensorized_cmp_equal(a, b) {
+  { equal_0_0 |> tensorized_comparators }(a, b)
 }
 
 //------------------------------------
@@ -565,7 +607,7 @@ pub fn tensor_multiply_2_1(a, b) {
 // sum functions
 //------------------------------------
 fn sum_1(t) {
-  summed(t, 0.0 |> to_tensor)
+  summed(t, to_tensor(0.0))
 }
 
 fn summed(t, a) {
@@ -593,7 +635,7 @@ pub fn argmax_1(t) {
   let assert ListTensor([head, ..] as lst) = t
   lst
   |> list.index_fold(#(head, 0), fn(acc, item, index) {
-    case { greater_0_0 |> tensor_comparator }(item, acc.0) {
+    case { greater_0_0 |> lift_scalar_comparator }(item, acc.0) {
       True -> #(item, index)
       _ -> acc
     }
@@ -616,7 +658,7 @@ pub fn max_1(t) {
   let assert ListTensor([head, ..] as lst) = t
   lst
   |> list.fold(head, fn(acc, item) {
-    case { greater_0_0 |> tensor_comparator }(item, acc) {
+    case { greater_0_0 |> lift_scalar_comparator }(item, acc) {
       True -> item
       _ -> acc
     }

@@ -1,17 +1,20 @@
 import core.{
-  Hyperparameters, cross_entropy_loss, gradient_descent, kl_loss, l2_loss, line,
-  linear, plane, quad, revise, smooth, tensor_dot_product,
-  tensor_dot_product_2_1, zeros,
+  adam_gradient_descent, cross_entropy_loss, gradient_descent, hp_new,
+  hp_new_batch_size, hp_new_beta, hp_new_mu, kl_loss, l2_loss, line, linear,
+  naked_gradient_descent, plane, quad, revise, rms_gradient_descent, samples,
+  sampling_obj, smooth, tensor_dot_product, tensor_dot_product_2_1,
+  tensor_to_float, velocity_gradient_descent, zeros,
 }
 import gleam/dynamic
-import gleam/int
-import gleam/io
+import gleam/float
+import gleam/function
 import gleam/list
 import gleeunit/should
 import learner.{
   type Tensor, ListTensor, ScalarTensor, gradient_of, tensor, tensor_add,
   tensor_divide, tensor_exp, tensor_log, tensor_minus, tensor_multiply,
-  tensor_multiply_2_1, tensor_sqr, tensor_sqrt, tensor_to_list, to_tensor,
+  tensor_multiply_2_1, tensor_sqr, tensor_sqrt, tensor_sum, tensor_to_list,
+  tensorized_cmp_equal, to_tensor,
 }
 import test_utils.{check_theta_and_gradient1, check_theta_and_gradient_lossely}
 
@@ -208,7 +211,7 @@ pub fn b_targets_test() {
 
   { plane(r1d1) |> check_theta_and_gradient1 }(
     plane_theta_1,
-    96.0 |> to_tensor,
+    to_tensor(96.0),
     make_theta([3, 4, 5] |> dynamic.from, 1.0),
   )
 
@@ -301,7 +304,7 @@ pub fn c_loss_test() {
     |> check_theta_and_gradient1
   }(
     plane_theta_0,
-    2.0 |> to_tensor,
+    to_tensor(2.0),
     make_theta(
       [-12, -16, -20]
         |> dynamic.from,
@@ -354,17 +357,19 @@ pub fn gradient_descent_test() {
 
   let obj = fn(theta) {
     let assert ListTensor([a, ..]) = theta
-    30.0 |> to_tensor |> tensor_minus(a) |> tensor_sqr
+    to_tensor(30.0) |> tensor_minus(a) |> tensor_sqr
   }
 
-  let id = fn(x) { x }
+  let id = function.identity
 
-  let hp = Hyperparameters(revs: 500, alpha: 0.01)
+  let hp = hp_new(revs: 500, alpha: 0.01)
 
   let naked_gd =
-    gradient_descent(hp, id, id, fn(w, g) {
-      tensor_multiply(g, hp.alpha |> to_tensor)
-      |> tensor_minus(w, _)
+    gradient_descent(hp, id, id, fn(hp) {
+      fn(w, g) {
+        tensor_multiply(g, hp.alpha |> to_tensor)
+        |> tensor_minus(w, _)
+      }
     })
 
   naked_gd(obj, [3.0] |> dynamic.from |> tensor)
@@ -376,4 +381,79 @@ pub fn d_gd_common_test() {
   |> tensor_should_equal([0, 0, 0] |> dynamic.from |> tensor)
 
   smooth(0.9, 31.0, -8.0) |> should.equal(27.1)
+}
+
+pub fn f_naked_test() {
+  let obj = fn(theta) {
+    let assert ListTensor([a]) = theta
+    tensor_minus(30.0 |> to_tensor, a) |> tensor_sqr
+  }
+
+  let hp = hp_new(revs: 400, alpha: 0.01)
+  { hp |> naked_gradient_descent }(obj, [3.0] |> dynamic.from |> tensor)
+  |> learner.is_tensor_equal([29.991647931623252] |> dynamic.from |> tensor)
+}
+
+pub fn g_velocity_gradient_descent() {
+  let obj = fn(theta) {
+    let assert ListTensor([a]) = theta
+    tensor_minus(30.0 |> to_tensor, a) |> tensor_sqr
+  }
+
+  let hp = hp_new(revs: 70, alpha: 0.01) |> hp_new_mu(mu: 0.9)
+  { hp |> velocity_gradient_descent }(obj, [3.0] |> dynamic.from |> tensor)
+  |> learner.is_tensor_equal([30.686162582787535] |> dynamic.from |> tensor)
+}
+
+pub fn h_rms_gradient_descent_test() {
+  let obj = fn(theta) {
+    let assert ListTensor([a]) = theta
+    tensor_minus(30.0 |> to_tensor, a) |> tensor_sqr
+  }
+
+  let hp = hp_new(revs: 170, alpha: 0.1) |> hp_new_beta(beta: 0.999)
+  { hp |> rms_gradient_descent }(obj, [3.0] |> dynamic.from |> tensor)
+  |> learner.is_tensor_equal([29.990436454407956] |> dynamic.from |> tensor)
+}
+
+pub fn i_adam_test() {
+  let obj = fn(theta) {
+    let assert ListTensor([ScalarTensor(a)]) = theta
+    let assert Ok(r) = { 30.0 -. a.real } |> float.power(2.0)
+    r |> to_tensor
+  }
+  let hp =
+    hp_new(revs: 150, alpha: 0.1)
+    |> hp_new_beta(beta: 0.999)
+    |> hp_new_mu(mu: 0.9)
+  { hp |> adam_gradient_descent }(obj, [3.0] |> dynamic.from |> tensor)
+  |> learner.is_tensor_equal([29.994907156105718] |> dynamic.from |> tensor)
+}
+
+pub fn j_stochastic_test() {
+  let test_samples = samples(10, 3)
+
+  test_samples |> list.length |> should.equal(3)
+
+  test_samples
+  |> list.all(fn(x) { x >= 0 && x <= 9 })
+  |> should.be_true
+
+  let test_expectant_fn = fn(xs, ys) {
+    fn(theta) {
+      should.equal(learner.shape(xs), learner.shape(ys))
+
+      tensorized_cmp_equal(xs, ys)
+      |> tensor_sum
+      |> tensor_to_float
+      |> should.equal(3.0)
+
+      theta
+    }
+  }
+
+  let test_tensor = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5] |> dynamic.from |> tensor
+
+  let hp = hp_new(1, 0.1) |> hp_new_batch_size(batch_size: 3)
+  { hp |> sampling_obj }(test_expectant_fn, test_tensor, test_tensor)(False)
 }
