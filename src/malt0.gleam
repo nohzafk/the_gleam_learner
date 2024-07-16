@@ -1087,7 +1087,7 @@ pub fn tensor_dot_product_2_1(w, t) {
 }
 
 pub fn linear(t) {
-  fn(theta) {
+  fn(theta: Theta) {
     let assert [a, b] = theta
     tensor_add(tensor_dot_product_2_1(a, t), b)
   }
@@ -1100,16 +1100,17 @@ pub fn make_theta(weights: dynamic.Dynamic, bias: Float) -> Theta {
 pub fn relu(t) {
   fn(theta: Theta) { theta |> linear(t) |> rectify }
 }
-// pub fn k_relu(k) {
-//   fn(t) {
-//     fn(theta) {
-//       case k {
-//         0 -> t
-//         _ -> {
-//           let next_layer = theta |> relu(t) |> k_relu(k - 1)
-//           next_layer(theta |> refr(2))
-//         }
-//       }
-//     }
-//   }
-// }
+
+pub fn k_relu(k) {
+  fn(t) {
+    fn(theta) {
+      case k {
+        0 -> t
+        _ -> {
+          let next_layer = theta |> relu(t) |> k_relu(k - 1)
+          next_layer(theta |> refr(2))
+        }
+      }
+    }
+  }
+}

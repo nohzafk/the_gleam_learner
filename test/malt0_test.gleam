@@ -13,15 +13,17 @@ import malt0.{
   adam_gradient_descent, add_0_0, build_tensor, build_tensor_from_tensors,
   correlation_overlap, desc_t, desc_u, dot_product, dotted_product, ext1, ext2,
   get_float, get_real, get_scalar, gradient_descent, gradient_of, gradient_once,
-  hp_new, hp_new_batch_size, hp_new_beta, hp_new_mu, make_theta, map_tensor,
-  map_tensor_recursively, multiply_0_0, naked_gradient_descent, new_scalar, rank,
-  rectify, rectify_0, relu, rms_gradient_descent, samples, sampling_obj, shape,
-  smooth, sum_dp, tensor, tensor_add, tensor_argmax, tensor_correlate,
-  tensor_divide, tensor_dot_product, tensor_dot_product_2_1, tensor_exp,
-  tensor_log, tensor_max, tensor_minus, tensor_multiply, tensor_multiply_2_1,
-  tensor_sqr, tensor_sqrt, tensor_sum, tensor_sum_cols, tensorized_cmp_equal,
-  tlen, to_tensor, tolerace, velocity_gradient_descent, zeros,
+  hp_new, hp_new_batch_size, hp_new_beta, hp_new_mu, k_relu, make_theta,
+  map_tensor, map_tensor_recursively, multiply_0_0, naked_gradient_descent,
+  new_scalar, rank, rectify, rectify_0, relu, rms_gradient_descent, samples,
+  sampling_obj, shape, smooth, sum_dp, tensor, tensor_add, tensor_argmax,
+  tensor_correlate, tensor_divide, tensor_dot_product, tensor_dot_product_2_1,
+  tensor_exp, tensor_log, tensor_max, tensor_minus, tensor_multiply,
+  tensor_multiply_2_1, tensor_sqr, tensor_sqrt, tensor_sum, tensor_sum_cols,
+  tensorized_cmp_equal, tlen, to_tensor, tolerace, velocity_gradient_descent,
+  zeros,
 }
+import mat
 
 pub fn tensor_to_list(tensor: Tensor) -> Dynamic {
   case tensor {
@@ -297,13 +299,17 @@ pub fn tensor_equal_test() {
   is_tensor_equal(t0, t2) |> should.be_false
 }
 
+pub fn check_gradients1(f, theta: Theta, gradients) {
+  let f_wrapper = fn(lst) { f(lst |> ListTensor) }
+  gradient_of(f_wrapper, theta) |> ListTensor |> tensor_should_equal(gradients)
+}
+
 pub fn check_theta_and_gradient1(f) {
   fn(t, answers, gradients) {
     tensor_should_equal(f(t), answers)
 
-    let assert ListTensor(lst) = t
-    let f_wrapper = fn(lst) { f(lst |> ListTensor) }
-    tensor_should_equal(gradient_of(f_wrapper, lst) |> ListTensor, gradients)
+    let assert ListTensor(theta) = t
+    check_gradients1(f, theta, gradients)
   }
 }
 
@@ -476,7 +482,7 @@ pub fn max_test() {
     |> dynamic.from
     |> tensor
 
-  check_theta_and_gradient1(tensor_max)(
+  { tensor_max |> check_theta_and_gradient1 }(
     y,
     tensor([1, 1, 1, 1] |> dynamic.from),
     y,
@@ -853,6 +859,58 @@ pub fn k_dense_test() {
   |> ListTensor
   |> tensor_should_equal(
     make_theta([[-1, 0, 1], [-1, 0, 1]] |> dynamic.from, 2.0)
+    |> ListTensor,
+  )
+
+  check_gradients1(
+    fn(a) {
+      let assert ListTensor(lst) = a
+      lst |> relu([-1, 0, 1] |> dynamic.from |> tensor)
+    },
+    make_theta([[1, 2, -3], [1, 2, -3]] |> dynamic.from, 2.0),
+    make_theta(
+      [[0, 0, 0], [0, 0, 0]]
+        |> dynamic.from,
+      0.0,
+    )
+      |> ListTensor,
+  )
+
+  [
+    [
+      [1.5043209265388457, 1.5892702938568741],
+      [0.33592431328374556, 0.8653082103400623],
+      [-0.8007586188977664, -1.4723530725283407],
+    ]
+      |> dynamic.from
+      |> tensor,
+    [0, 0, 0] |> dynamic.from |> tensor,
+  ]
+  |> relu([[2, 3], [2, 3]] |> dynamic.from |> tensor)
+  |> tensor_should_equal(
+    [
+      [7.7764527346483145, 3.267773257587678, 0.0],
+      [7.7764527346483145, 3.267773257587678, 0.0],
+    ]
+    |> dynamic.from
+    |> tensor,
+  )
+
+  make_theta([[1, 2, 3], [1, 2, 3]] |> dynamic.from, 2.0)
+  |> relu([[-1, 0, 1], [-1, 0, 1]] |> dynamic.from |> tensor)
+  |> tensor_should_equal([[4, 4], [4, 4]] |> dynamic.from |> tensor)
+
+  gradient_of(
+    relu([[-1, 0, 1], [-1, 0, 1]] |> dynamic.from |> tensor),
+    make_theta([[1, 2, 3], [1, 2, 3]] |> dynamic.from, 2.0),
+  )
+  |> ListTensor
+  |> tensor_should_equal(
+    make_theta(
+      [[-2, 0, 2], [-2, 0, 2]]
+        |> dynamic.from,
+      4.0,
+    )
     |> ListTensor,
   )
 }
