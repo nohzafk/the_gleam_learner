@@ -3,27 +3,29 @@ import gleam/dynamic.{type Dynamic}
 import gleam/float
 import gleam/function
 import gleam/int
-import gleam/io
+import gleam/iterator
 import gleam/list
 import gleam/result
 import gleam/string
+import gleam_community/maths/combinatorics
 import gleeunit/should
 import malt0.{
-  type Scalar, type Tensor, type Theta, ListTensor, Scalar, ScalarTensor,
-  adam_gradient_descent, add_0_0, build_tensor, build_tensor_from_tensors,
-  correlation_overlap, desc_t, desc_u, dot_product, dotted_product, ext1, ext2,
-  get_float, get_real, get_scalar, gradient_descent, gradient_of, gradient_once,
-  hp_new, hp_new_batch_size, hp_new_beta, hp_new_mu, k_relu, make_theta,
-  map_tensor, map_tensor_recursively, multiply_0_0, naked_gradient_descent,
-  new_scalar, rank, rectify, rectify_0, relu, rms_gradient_descent, samples,
-  sampling_obj, shape, smooth, sum_dp, tensor, tensor_add, tensor_argmax,
+  type Scalar, type Tensor, type Theta, Block, ListTensor, Scalar, ScalarTensor,
+  accuracy, adam_gradient_descent, add_0_0, build_tensor,
+  build_tensor_from_tensors, compose_block_fns, corr, correlation_overlap,
+  desc_t, desc_u, dot_product, dotted_product, ext1, ext2, get_float, get_real,
+  get_scalar, gradient_descent, gradient_of, gradient_once, hp_new,
+  hp_new_batch_size, hp_new_beta, hp_new_mu, init_shape, k_recu, l2_loss,
+  make_theta, map_tensor, map_tensor_recursively, multiply_0_0,
+  naked_gradient_descent, new_scalar, plane, rank, rectify, rectify_0, recu,
+  relu, rms_gradient_descent, samples, sampling_obj, shape, smooth, stack2,
+  stack_blocks, sum_dp, tensor, tensor_abs, tensor_add, tensor_argmax,
   tensor_correlate, tensor_divide, tensor_dot_product, tensor_dot_product_2_1,
   tensor_exp, tensor_log, tensor_max, tensor_minus, tensor_multiply,
   tensor_multiply_2_1, tensor_sqr, tensor_sqrt, tensor_sum, tensor_sum_cols,
   tensorized_cmp_equal, tlen, to_tensor, tolerace, velocity_gradient_descent,
   zeros,
 }
-import mat
 
 pub fn tensor_to_list(tensor: Tensor) -> Dynamic {
   case tensor {
@@ -703,6 +705,22 @@ pub fn a_core_test() {
   }
 }
 
+pub fn c_loss_test() {
+  let r2d1 = [[3, 4, 5], [3, 4, 5]] |> dynamic.from |> tensor
+
+  {
+    fn(t) {
+      let assert ListTensor(lst) = t
+      lst |> l2_loss(plane)(r2d1, [1, 1] |> dynamic.from |> tensor)
+    }
+    |> check_theta_and_gradient1
+  }(
+    make_theta([0, 0, 0] |> dynamic.from, 0.0) |> ListTensor,
+    2.0 |> dynamic.from |> tensor,
+    make_theta([-12, -16, -20] |> dynamic.from, -4.0) |> ListTensor,
+  )
+}
+
 pub fn d_gradient_descent_test() {
   let obj = fn(theta: Theta) {
     let assert [a, ..] = theta
@@ -730,7 +748,9 @@ pub fn e_gd_common_test() {
   zeros([1, 2, 3] |> dynamic.from |> tensor)
   |> tensor_should_equal([0, 0, 0] |> dynamic.from |> tensor)
 
-  smooth(0.9, 31.0, -8.0) |> should.equal(27.1)
+  smooth(to_tensor(0.9), to_tensor(31.0), to_tensor(-8.0))
+  |> get_float
+  |> should.equal(27.1)
 }
 
 pub fn f_naked_test() {
@@ -808,7 +828,9 @@ pub fn j_stochastic_test() {
   let test_tensor = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5] |> dynamic.from |> tensor
 
   let hp = hp_new(1, 0.1) |> hp_new_batch_size(batch_size: 3)
-  { hp |> sampling_obj }(test_expectant_fn, test_tensor, test_tensor)(False)
+  { hp.batch_size |> sampling_obj }(test_expectant_fn, test_tensor, test_tensor)(
+    False,
+  )
 }
 
 pub fn recify_test() {
@@ -912,5 +934,249 @@ pub fn k_dense_test() {
       4.0,
     )
     |> ListTensor,
+  )
+}
+
+pub fn n_blocks_test() {
+  let bf1 = fn(t) {
+    fn(theta) {
+      let assert [a, ..] = theta
+      tensor_multiply(a, t)
+    }
+  }
+
+  let bf2 = fn(t) {
+    fn(theta) {
+      let assert [a, ..] = theta
+      tensor_multiply(a, t)
+    }
+  }
+
+  let bf1bf2 = compose_block_fns(bf1, bf2, 1)
+
+  [2.0, 4.0]
+  |> list.map(fn(x) { x |> dynamic.from |> tensor })
+  |> bf1bf2(4.0 |> dynamic.from |> tensor)
+  |> get_float
+  |> should.equal(32.0)
+
+  let b1 = Block(bf1, [[]])
+  let b2 = Block(bf2, [[]])
+  let b1b2 = stack2(b1, b2)
+
+  [2.0, 4.0]
+  |> list.map(fn(x) { x |> dynamic.from |> tensor })
+  |> b1b2.block_fn(4.0 |> dynamic.from |> tensor)
+  |> get_float
+  |> should.equal(32.0)
+
+  let b1b2_again = stack_blocks([b1, b2])
+
+  [2.0, 4.0]
+  |> list.map(fn(x) { x |> dynamic.from |> tensor })
+  |> b1b2_again.block_fn(4.0 |> dynamic.from |> tensor)
+  |> get_float
+  |> should.equal(32.0)
+}
+
+pub fn o_init_test() {
+  let v = init_shape([1000, 4])
+
+  let mean_v =
+    v
+    |> tensor_sum
+    |> tensor_sum
+    |> tensor_divide(to_tensor(4000.0))
+    |> tensor_abs
+
+  let variance_v =
+    tensor_multiply(v, v)
+    |> tensor_sum
+    |> tensor_sum
+    |> tensor_divide(to_tensor(4000.0))
+    |> tensor_minus(tensor_multiply(mean_v, mean_v))
+
+  { mean_v |> get_float <. 0.05 } |> should.be_true
+  {
+    let variance_v_float = variance_v |> get_float
+    variance_v_float >=. 0.4 && variance_v_float <=. 0.6
+  }
+  |> should.be_true
+
+  // Here variance will be 2/8 = 0.25
+  let r = init_shape([1000, 4, 2])
+  let mean_r =
+    r
+    |> tensor_sum
+    |> tensor_sum
+    |> tensor_sum
+    |> tensor_divide(to_tensor(8000.0))
+
+  let variance_r =
+    tensor_multiply(r, r)
+    |> tensor_sum
+    |> tensor_sum
+    |> tensor_sum
+    |> tensor_divide(to_tensor(8000.0))
+    |> tensor_minus(tensor_multiply(mean_r, mean_r))
+
+  { mean_r |> get_float <. 0.05 } |> should.be_true
+  {
+    let variance_r_float = variance_r |> get_float
+    variance_r_float >=. 0.22 && variance_r_float <=. 0.28
+  }
+  |> should.be_true
+}
+
+pub fn l_accuracy_test() {
+  let t2 = [[1, 2, 3, 4], [5, 6, 7, 8]] |> dynamic.from |> tensor
+
+  let a_model = fn(t) { t }
+
+  accuracy(a_model, t2, t2) |> should.equal(1.0)
+}
+
+pub fn m_recu_test() {
+  let s2d1 =
+    [[3], [4], [5], [6], [7], [8]]
+    |> dynamic.from
+    |> tensor
+
+  let b2f3d1 =
+    [[[3], [4], [5]], [[3], [4], [5]]]
+    |> dynamic.from
+    |> tensor
+
+  let b2f3d2 =
+    [[[3.0, 3.5], [4.0, 4.5], [5.0, 5.5]], [[3.0, 3.5], [4.0, 4.5], [5.0, 5.5]]]
+    |> dynamic.from
+    |> tensor
+
+  let positive_biases = [3, 4] |> dynamic.from |> tensor
+
+  [b2f3d1, positive_biases]
+  |> corr(s2d1)
+  |> tensor_should_equal(
+    [[35, 36], [53, 54], [65, 66], [77, 78], [89, 90], [56, 57]]
+    |> dynamic.from
+    |> tensor,
+  )
+
+  [b2f3d1, positive_biases]
+  |> recu(s2d1)
+  |> tensor_should_equal(
+    [[35, 36], [53, 54], [65, 66], [77, 78], [89, 90], [56, 57]]
+    |> dynamic.from
+    |> tensor,
+  )
+
+  let negative_biases = [-70, -60] |> dynamic.from |> tensor
+
+  [b2f3d1, negative_biases]
+  |> corr(s2d1)
+  |> tensor_should_equal(
+    [[-38, -28], [-20, -10], [-8, 2], [4, 14], [16, 26], [-17, -7]]
+    |> dynamic.from
+    |> tensor,
+  )
+
+  [b2f3d1, negative_biases]
+  |> recu(s2d1)
+  |> tensor_should_equal(
+    [[0, 0], [0, 0], [0, 2], [4, 14], [16, 26], [0, 0]]
+    |> dynamic.from
+    |> tensor,
+  )
+
+  [b2f3d1, negative_biases, b2f3d2, positive_biases]
+  |> k_recu(2)(s2d1)
+  |> tensor_should_equal(
+    [[3, 4], [14, 15], [109, 110], [312, 313], [245, 246], [142, 143]]
+    |> dynamic.from
+    |> tensor,
+  )
+}
+
+pub fn cartesian_product_test() {
+  let list1 = [500, 1000] |> list.map(dynamic.from)
+  let list2 = [0.0001, 0.0002] |> list.map(dynamic.from)
+  let list3 = [4, 8] |> list.map(dynamic.from)
+
+  list1
+  |> combinatorics.cartesian_product(list2)
+  |> list.flat_map(fn(tuple) {
+    list3
+    |> list.map(fn(item) { #(tuple.0, tuple.1, item) })
+  })
+  |> should.equal(
+    [
+      #(500, 0.0001, 4),
+      #(500, 0.0001, 8),
+      #(500, 0.0002, 4),
+      #(500, 0.0002, 8),
+      #(1000, 0.0001, 4),
+      #(1000, 0.0001, 8),
+      #(1000, 0.0002, 4),
+      #(1000, 0.0002, 8),
+    ]
+    |> list.map(fn(item) {
+      let #(a, b, c) = item
+      #(a |> dynamic.from, b |> dynamic.from, c |> dynamic.from)
+    }),
+  )
+
+  malt0.cartesian_product([list1, list2, list3])
+  |> should.equal(
+    [
+      #(500, 0.0001, 4),
+      #(500, 0.0001, 8),
+      #(500, 0.0002, 4),
+      #(500, 0.0002, 8),
+      #(1000, 0.0001, 4),
+      #(1000, 0.0001, 8),
+      #(1000, 0.0002, 4),
+      #(1000, 0.0002, 8),
+    ]
+    |> list.map(fn(item) {
+      let #(a, b, c) = item
+      [a |> dynamic.from, b |> dynamic.from, c |> dynamic.from]
+    }),
+  )
+
+  // The result will be a list of lists, each containing one element from each input list
+  let r =
+    malt0.cartesian_product([
+      [500, 1000] |> list.map(dynamic.from),
+      [0.0001, 0.0002] |> list.map(dynamic.from),
+      [4, 8] |> list.map(dynamic.from),
+      ["a", "b"] |> list.map(dynamic.from),
+    ])
+
+  r |> list.length |> should.equal(16)
+
+  r
+  |> iterator.from_list
+  |> iterator.at(0)
+  |> should.equal(
+    [
+      500 |> dynamic.from,
+      0.0001 |> dynamic.from,
+      4 |> dynamic.from,
+      "a" |> dynamic.from,
+    ]
+    |> Ok,
+  )
+
+  r
+  |> iterator.from_list
+  |> iterator.at(15)
+  |> should.equal(
+    [
+      1000 |> dynamic.from,
+      0.0002 |> dynamic.from,
+      8 |> dynamic.from,
+      "b" |> dynamic.from,
+    ]
+    |> Ok,
   )
 }

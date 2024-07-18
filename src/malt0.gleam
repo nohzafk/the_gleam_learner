@@ -1,11 +1,14 @@
 //// learner
 
+import birl
+import birl/duration
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/float
 import gleam/function
 import gleam/int
 import gleam/io
+import gleam/iterator
 import gleam/list
 import gleam/pair
 import gleam/result
@@ -14,6 +17,8 @@ import gleam/string
 import gleam_community/maths/elementary.{exponential, natural_logarithm}
 import gluid
 import mat
+import parallel_map
+import random_distribution.{random_normal}
 
 //----------------------------
 // Overview
@@ -873,34 +878,50 @@ pub fn gradient_descent(hp: Hyperparameters) {
 }
 
 //------------------------------------
-// Monadic Operator Helper
+// non-differentiable versions of tensor operations
 //------------------------------------
-fn lift_update1(
-  update: fn(Float, Float) -> Float,
-) -> fn(Tensor, Tensor) -> Tensor {
-  fn(p, g) { update(p |> get_float, g |> get_float) |> to_tensor }
-}
-
-fn lift_update2(
-  update: fn(List(Float), Float) -> List(Float),
-) -> fn(Tensor, Tensor) -> Tensor {
-  fn(pa, g) {
-    let assert ListTensor([p0, p1]) = pa
-    update([p0, p1] |> list.map(get_float), g |> get_float)
-    |> list.map(to_tensor)
-    |> ListTensor
+fn lift_numerical_tensor_op(op) {
+  fn(t) {
+    let f = op |> lift_float1 |> lift_scalar1 |> ext1(0)
+    f(t)
   }
 }
 
-fn lift_update3(
-  update: fn(List(Float), Float) -> List(Float),
-) -> fn(Tensor, Tensor) -> Tensor {
-  fn(pa, g) {
-    let assert ListTensor([p0, p1, p2]) = pa
-    update([p0, p1, p2] |> list.map(get_float), g |> get_float)
-    |> list.map(to_tensor)
-    |> ListTensor
+fn lift_numerical_tensor_op2(op) {
+  fn(t, u) {
+    let f = op |> lift_float2 |> lift_scalar2 |> ext2(0, 0)
+    f(t, u)
   }
+}
+
+pub fn numerical_tensor_add(t, u) {
+  { float.add |> lift_numerical_tensor_op2 }(t, u)
+}
+
+pub fn numerical_tensor_minus(t, u) {
+  { float.subtract |> lift_numerical_tensor_op2 }(t, u)
+}
+
+pub fn numerical_tensor_multiply(t, u) {
+  { float.multiply |> lift_numerical_tensor_op2 }(t, u)
+}
+
+pub fn numerical_tensor_divide(t, u) {
+  { fn(x, y) { x /. y } |> lift_numerical_tensor_op2 }(t, u)
+}
+
+pub fn numerical_tensor_sqr(t) {
+  numerical_tensor_multiply(t, t)
+}
+
+pub fn numerical_tensor_sqrt(t) {
+  {
+    fn(x) {
+      let assert Ok(r) = float.square_root(x)
+      r
+    }
+    |> lift_numerical_tensor_op
+  }(t)
 }
 
 //------------------------------------
@@ -915,9 +936,16 @@ fn naked_d(x) {
   function.identity(x)
 }
 
+// in update function, when computing tensor, automatic differentiation is not required.
+// use non-differentiable versions of the tensor functions for better performance
 fn naked_u(hp: Hyperparameters) {
-  fn(p, g) { p -. hp.alpha *. g }
-  |> lift_update1
+  fn(p, g) {
+    // p -. hp.alpha *. g
+    numerical_tensor_minus(
+      p,
+      numerical_tensor_multiply(hp.alpha |> to_tensor, g),
+    )
+  }
 }
 
 pub fn naked_gradient_descent(hp: Hyperparameters) {
@@ -947,15 +975,17 @@ fn velocity_d(pa: Tensor) {
 fn velocity_u(hp: Hyperparameters) {
   fn(pa, g) {
     // pa: parameter P0 accompanied by its velocity P1 from the last revision
-    let assert [p0, p1] = pa
+    let assert ListTensor([p0, p1]) = pa
 
     // μ * p1 - α * g
-    let v = hp.mu *. p1 -. hp.alpha *. g
-
-    // p0 + μ * p1 - α * g
-    [p0 +. v, v]
+    let v =
+      numerical_tensor_minus(
+        numerical_tensor_multiply(hp.mu |> to_tensor, p1),
+        numerical_tensor_multiply(hp.alpha |> to_tensor, g),
+      )
+    //[p0 +. v, v]
+    [numerical_tensor_add(p0, v), v] |> ListTensor
   }
-  |> lift_update2
 }
 
 pub fn velocity_gradient_descent(hp: Hyperparameters) {
@@ -981,23 +1011,33 @@ fn rms_d(pa: Tensor) {
 }
 
 pub fn smooth(decay_rate, average, g) {
-  decay_rate *. average +. { 1.0 -. decay_rate } *. g
+  // decay_rate *. average +. { 1.0 -. decay_rate } *. g
+  numerical_tensor_add(
+    numerical_tensor_multiply(decay_rate, average),
+    numerical_tensor_minus(to_tensor(1.0), decay_rate)
+      |> numerical_tensor_multiply(g),
+  )
 }
 
 const epsilon = 1.0e-8
 
 fn rms_u(hp: Hyperparameters) {
   fn(pa, g) {
-    let assert [p0, p1] = pa
+    let assert ListTensor([p0, p1]) = pa
 
-    let r = smooth(hp.beta, p1, g *. g)
-    let assert Ok(r_sqrt) = float.square_root(r)
+    let r = smooth(hp.beta |> to_tensor, p1, numerical_tensor_sqr(g))
+    let r_sqrt = numerical_tensor_sqrt(r)
 
-    let alpha_hat = hp.alpha /. { r_sqrt +. epsilon }
-    // p0 - (α / (r_sqrt + ϵ)) * g
-    [p0 -. alpha_hat *. g, r]
+    // α / (r_sqrt + ϵ)
+    let alpha_hat =
+      numerical_tensor_divide(
+        hp.alpha |> to_tensor,
+        numerical_tensor_add(r_sqrt, epsilon |> to_tensor),
+      )
+    // [p0 - (α / (r_sqrt + ϵ)) * g, r]
+    [numerical_tensor_minus(p0, numerical_tensor_multiply(alpha_hat, g)), r]
+    |> ListTensor
   }
-  |> lift_update2
 }
 
 pub fn rms_gradient_descent(hp: Hyperparameters) {
@@ -1020,19 +1060,23 @@ fn adam_d(pa: Tensor) {
 // ADAM: adaptive moment estimation.
 fn adam_u(hp: Hyperparameters) {
   fn(pa, g) {
-    let assert [p0, p1, p2] = pa
+    let assert ListTensor([p0, p1, p2]) = pa
 
-    let r = smooth(hp.beta, p2, g *. g)
-    let assert Ok(r_sqrt) = float.square_root(r)
-    let alpha_hat = hp.alpha /. { r_sqrt +. epsilon }
+    let r = smooth(hp.beta |> to_tensor, p2, numerical_tensor_sqr(g))
+    let r_sqrt = numerical_tensor_sqrt(r)
+    let alpha_hat =
+      numerical_tensor_divide(
+        hp.alpha |> to_tensor,
+        numerical_tensor_add(r_sqrt, epsilon |> to_tensor),
+      )
 
-    let v = smooth(hp.mu, p1, g)
+    let v = smooth(hp.mu |> to_tensor, p1, g)
     // The accompaniment v is known as the gradient's 1st moment.
     // The accompaniment r is known as the gradient's 2nd moment.
     // p0 - (α / (r_sqrt + ϵ)) * v
-    [p0 -. alpha_hat *. v, v, r]
+    [numerical_tensor_minus(p0, numerical_tensor_multiply(alpha_hat, v)), v, r]
+    |> ListTensor
   }
-  |> lift_update3
 }
 
 pub fn adam_gradient_descent(hp: Hyperparameters) {
@@ -1046,11 +1090,11 @@ pub fn samples(n: Int, size: Int) -> List(Int) {
   list.range(0, n - 1) |> list.shuffle |> list.take(size)
 }
 
-pub fn sampling_obj(hp: Hyperparameters) {
+pub fn sampling_obj(batch_size: Int) {
   fn(expectant, xs, ys) {
     fn(theta) {
       let assert [n, ..] = shape(xs)
-      let sample_indices = samples(n, hp.batch_size)
+      let sample_indices = samples(n, batch_size)
 
       let sampled_xs = trefs(xs, sample_indices)
       let sampled_ys = trefs(ys, sample_indices)
@@ -1076,15 +1120,13 @@ pub fn rectify(t: Tensor) {
 }
 
 //------------------------------------
-// K-dense
+// Layer functions
 //------------------------------------
-pub fn tensor_dot_product(w, t) {
-  tensor_multiply(w, t) |> tensor_sum
+pub fn make_theta(weights: dynamic.Dynamic, bias: Float) -> Theta {
+  [weights |> tensor, bias |> to_tensor]
 }
 
-pub fn tensor_dot_product_2_1(w, t) {
-  tensor_multiply_2_1(w, t) |> tensor_sum
-}
+// Single layer functions
 
 pub fn linear(t) {
   fn(theta: Theta) {
@@ -1093,24 +1135,251 @@ pub fn linear(t) {
   }
 }
 
-pub fn make_theta(weights: dynamic.Dynamic, bias: Float) -> Theta {
-  [weights |> tensor, bias |> to_tensor]
+pub fn plane(t) {
+  fn(theta: Theta) {
+    let assert [a, b] = theta
+    tensor_add(tensor_dot_product(a, t), b)
+  }
+}
+
+pub fn softmax(t) {
+  fn(_theta: Theta) {
+    let z = tensor_minus(t, tensor_max(t))
+    let expz = tensor_exp(z)
+    tensor_sum(expz) |> tensor_divide(expz, _)
+  }
+}
+
+pub fn tensor_dot_product(w, t) {
+  tensor_multiply(w, t) |> tensor_sum
+}
+
+pub fn tensor_dot_product_2_1(w, t) {
+  tensor_multiply_2_1(w, t) |> tensor_sum
 }
 
 pub fn relu(t) {
-  fn(theta: Theta) { theta |> linear(t) |> rectify }
+  fn(theta: Theta) { theta |> list.take(2) |> linear(t) |> rectify }
 }
 
-pub fn k_relu(k) {
-  fn(t) {
-    fn(theta) {
+pub fn corr(t) {
+  fn(theta: Theta) {
+    let assert [a, b] = theta
+    tensor_correlate(a, t) |> tensor_add(b)
+  }
+}
+
+/// rectified 1D-convolution function
+pub fn recu(t) {
+  fn(theta: Theta) { theta |> list.take(2) |> corr(t) |> rectify }
+}
+
+// Deep layer functions
+pub fn k_relu(k: Int) {
+  fn(t: Tensor) {
+    fn(theta: Theta) {
       case k {
         0 -> t
         _ -> {
           let next_layer = theta |> relu(t) |> k_relu(k - 1)
-          next_layer(theta |> refr(2))
+          theta |> refr(2) |> next_layer
         }
       }
+    }
+  }
+}
+
+pub fn k_recu(k: Int) {
+  fn(t: Tensor) {
+    fn(theta: Theta) {
+      case k {
+        0 -> t
+        _ -> {
+          let next_layer = theta |> recu(t) |> k_recu(k - 1)
+          theta |> refr(2) |> next_layer
+        }
+      }
+    }
+  }
+}
+
+//------------------------------------
+// Loss Functions
+//------------------------------------
+pub type TargetFn =
+  fn(Tensor) -> fn(Theta) -> Tensor
+
+/// SSE loss function (Sum of Squared Error Loss)
+pub fn l2_loss(target: TargetFn) {
+  fn(xs: Tensor, ys: Tensor) {
+    fn(theta: Theta) {
+      let pred_ys = theta |> target(xs)
+      ys |> tensor_minus(pred_ys) |> tensor_sqr |> tensor_sum
+    }
+  }
+}
+
+//------------------------------------
+// Building blocks for neural networks
+//------------------------------------
+pub type Block {
+  Block(block_fn: TargetFn, block_shape: List(Shape))
+}
+
+pub fn compose_block_fns(fa, fb, j) {
+  fn(t: Tensor) {
+    fn(theta: Theta) {
+      let f = theta |> fa(t) |> fb
+      refr(theta, j) |> f
+    }
+  }
+}
+
+pub fn stack2(ba: Block, bb: Block) {
+  Block(
+    compose_block_fns(ba.block_fn, bb.block_fn, ba.block_shape |> list.length),
+    list.concat([ba.block_shape, bb.block_shape]),
+  )
+}
+
+pub fn stack_blocks(blocks: List(Block)) -> Block {
+  let assert Ok(b) = list.reduce(blocks, fn(acc, block) { stack2(acc, block) })
+  b
+}
+
+//------------------------------------
+//  He Initialization
+//------------------------------------
+/// Tensors of rank 1 are initialized to contain only 0.0.
+///
+/// Tensors of rank 2 are initialized to random numbers drawn from a normal
+/// distribution with a mean of 0.0 and a variance of (/ 2 fan-in) where fan-in is
+/// the last member of the shape.
+///
+/// Tensors of rank 3 are initialized to random numbers drawn from a normal
+/// distribution with a mean of 0.0 and a variance of (/ 2 fan-in) where fan-in is
+/// the product of the last two members of the shape.
+pub fn init_theta(theta_shape: List(Shape)) -> List(Tensor) {
+  theta_shape |> list.map(init_shape)
+}
+
+pub fn init_shape(shape: Shape) -> Tensor {
+  case list.length(shape) {
+    1 -> zero_tensors(shape)
+    2 -> {
+      let assert [_, fan_in] = shape
+      random_tensor(0.0, 2.0 /. int.to_float(fan_in), shape)
+    }
+    3 -> {
+      let assert [_, s1, s2] = shape
+      let fan_in = s1 * s2
+      random_tensor(0.0, 2.0 /. int.to_float(fan_in), shape)
+    }
+    _ -> panic
+  }
+}
+
+fn random_tensor(mean: Float, variance: Float, shape: Shape) -> Tensor {
+  build_tensor(shape, fn(_tidx) {
+    let assert Ok(r) = float.square_root(variance)
+    random_normal(mean, r)
+  })
+}
+
+fn zero_tensors(shape: Shape) {
+  build_tensor(shape, fn(_tidx) { 0.0 })
+}
+
+//------------------------------------
+// Models and Accuracy
+//------------------------------------
+pub fn model(target: TargetFn, theta: Theta) {
+  fn(t) { theta |> target(t) }
+}
+
+pub fn accuracy(a_model: fn(Tensor) -> Tensor, xs: Tensor, ys: Tensor) {
+  tensorized_cmp_equal(xs |> a_model |> tensor_argmax, ys |> tensor_argmax)
+  |> tensor_sum
+  |> tensor_divide(tlen(ys) |> int.to_float |> to_tensor)
+  |> get_float
+}
+
+// Gleam language
+pub fn grid_search(
+  body,
+  good_enough: fn(Theta) -> Bool,
+  revs revs_options: List(Int),
+  alpha alpha_options: List(Float),
+  batch_size batch_size: List(Int),
+) {
+  [
+    revs_options |> list.map(dynamic.from),
+    alpha_options |> list.map(dynamic.from),
+    batch_size |> list.map(dynamic.from),
+  ]
+  |> cartesian_product
+  |> parallel_map.list_pmap(
+    fn(hypers) {
+      let assert [revs, alpha, batch_size] = hypers
+      let assert Ok(ok_revs) = revs |> dynamic.int
+      let assert Ok(ok_alpha) = alpha |> dynamic.float
+      let assert Ok(ok_batch_size) = batch_size |> dynamic.int
+
+      let hp = hp_new(ok_revs, ok_alpha) |> hp_new_batch_size(ok_batch_size)
+
+      let start = birl.now()
+      let theta = body(hp)
+      let end = birl.now()
+      let diff = birl.difference(end, start)
+
+      case good_enough(theta) {
+        True -> {
+          report_hypers(hp, diff, True)
+          Ok(#(hypers, theta))
+        }
+        False -> {
+          report_hypers(hp, diff, False)
+          Error(Nil)
+        }
+      }
+    },
+    parallel_map.WorkerAmount(16),
+    60 * 1000,
+  )
+}
+
+// how can i stop the parallel execution when I find a Ok value?
+// under the hood of parallel_map.list_pmap it use erlang process
+
+// fn tensor_to_list(t: Tensor) {
+//   case t {
+//     ScalarTensor(s) -> s.real |> dynamic.from
+//     ListTensor([]) -> dynamic.from([])
+//     ListTensor(lst) -> lst |> list.map(tensor_to_list) |> dynamic.from
+//   }
+// }
+
+fn report_hypers(hp: Hyperparameters, diff, good: Bool) {
+  "{} {} Execution time: {} seconds\n"
+  |> mat.format3(
+    case good {
+      True -> "Good"
+      False -> "Bad"
+    },
+    hp |> string.inspect,
+    duration.blur_to(diff, duration.Second) |> int.to_string,
+  )
+  |> io.print_error
+}
+
+pub fn cartesian_product(lists: List(List(a))) -> List(List(a)) {
+  case lists {
+    [] -> [[]]
+    [first, ..rest] -> {
+      let sub_product = cartesian_product(rest)
+      list.flat_map(first, fn(item) {
+        list.map(sub_product, fn(combo) { [item, ..combo] })
+      })
     }
   }
 }
