@@ -149,7 +149,7 @@ pub fn iris_test_ys() {
 
 pub fn accurate_enough_iris_theta(theta) {
   accuracy(model(iris_classifier(), theta), iris_test_xs(), iris_test_ys())
-  >=. 0.7
+  >=. 0.9
 }
 
 pub fn grid_search_iris_theta() {

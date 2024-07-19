@@ -1,21 +1,21 @@
 //// learner
+//// Tensor using list and recursive data structure implementation
 
 import birl
 import birl/duration
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
+import gleam/erlang.{type Reference}
 import gleam/float
 import gleam/function
 import gleam/int
 import gleam/io
-import gleam/iterator
 import gleam/list
 import gleam/pair
 import gleam/result
 import gleam/set
 import gleam/string
 import gleam_community/maths/elementary.{exponential, natural_logarithm}
-import gluid
 import mat
 import parallel_map
 import random_distribution.{random_normal}
@@ -35,22 +35,22 @@ import random_distribution.{random_normal}
 //----------------------------
 pub const tolerace = 0.0001
 
-pub fn uuid() {
-  gluid.guidv4()
+pub fn tensor_id() {
+  erlang.make_reference()
 }
 
 /// Tensors are implemented as nested lists and all scalars are duals.
 /// scalar? - Tensors of rank 0
 pub type Scalar {
-  Scalar(id: String, real: Float, link: Link)
+  Scalar(id: Reference, real: Float, link: Link)
 }
 
 pub fn new_scalar(v: Float) -> Scalar {
-  Scalar(uuid(), v, end_of_chain)
+  Scalar(tensor_id(), v, end_of_chain)
 }
 
 pub fn new_dual(v: Float, link: Link) {
-  Scalar(uuid(), v, link)
+  Scalar(tensor_id(), v, link)
 }
 
 pub fn from_scalar(s: Scalar) {
