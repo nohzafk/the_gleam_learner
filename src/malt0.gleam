@@ -3,6 +3,8 @@
 
 import birl
 import birl/duration
+import parallel_map
+
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang.{type Reference}
@@ -17,7 +19,6 @@ import gleam/set
 import gleam/string
 import gleam_community/maths/elementary.{exponential, natural_logarithm}
 import mat
-import parallel_map
 import random_distribution.{random_normal}
 
 //----------------------------
@@ -1304,7 +1305,6 @@ pub fn accuracy(a_model: fn(Tensor) -> Tensor, xs: Tensor, ys: Tensor) {
   |> get_float
 }
 
-// Gleam language
 pub fn grid_search(
   body,
   good_enough: fn(Theta) -> Bool,
@@ -1327,20 +1327,13 @@ pub fn grid_search(
 
       let hp = hp_new(ok_revs, ok_alpha) |> hp_new_batch_size(ok_batch_size)
 
-      let start = birl.now()
+      use <- report_context(hp)
+
       let theta = body(hp)
-      let end = birl.now()
-      let diff = birl.difference(end, start)
 
       case good_enough(theta) {
-        True -> {
-          report_hypers(hp, diff, True)
-          Ok(#(hypers, theta))
-        }
-        False -> {
-          report_hypers(hp, diff, False)
-          Error(Nil)
-        }
+        True -> Ok(#(hypers, theta))
+        False -> Error(Nil)
       }
     },
     parallel_map.WorkerAmount(16),
@@ -1359,19 +1352,6 @@ pub fn grid_search(
 //   }
 // }
 
-fn report_hypers(hp: Hyperparameters, diff, good: Bool) {
-  "{} {} Execution time: {} seconds\n"
-  |> mat.format3(
-    case good {
-      True -> "Good"
-      False -> "Bad"
-    },
-    hp |> string.inspect,
-    duration.blur_to(diff, duration.Second) |> int.to_string,
-  )
-  |> io.print_error
-}
-
 pub fn cartesian_product(lists: List(List(a))) -> List(List(a)) {
   case lists {
     [] -> [[]]
@@ -1382,4 +1362,27 @@ pub fn cartesian_product(lists: List(List(a))) -> List(List(a)) {
       })
     }
   }
+}
+
+fn report_context(hp, do) {
+  let start = birl.now()
+  let r = do()
+  let end = birl.now()
+  let diff = birl.difference(end, start)
+
+  report_hypers(hp, diff, result.is_ok(r))
+  r
+}
+
+fn report_hypers(hp: Hyperparameters, diff: duration.Duration, good: Bool) {
+  "{} {} Execution time: {} seconds"
+  |> mat.format3(
+    case good {
+      True -> "Good"
+      False -> "Bad"
+    },
+    hp |> string.inspect,
+    duration.blur_to(diff, duration.Second) |> int.to_string,
+  )
+  |> io.println_error
 }
