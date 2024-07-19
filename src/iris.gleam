@@ -1,10 +1,11 @@
+import gleam/dynamic
 import gleam/io
+import gleam/list
 import gleam/string
-import gleeunit/should
 import iris_data
 import malt0.{
   type Block, Block, accuracy, grid_search, init_theta, l2_loss, model, relu,
-  sampling_obj, stack_blocks,
+  sampling_obj, stack_blocks, tensor,
 }
 
 //*----------------------------------------
@@ -62,16 +63,92 @@ Please refer to the Chapter Guide on https://www.thelittlelearner.com for furthe
   |> io.println_error
 }
 
+pub fn iris_full_xs() {
+  iris_data.iris_full
+  |> list.map(fn(data) {
+    let assert [xs, _] = data
+    xs
+  })
+  |> dynamic.from
+  |> tensor
+}
+
+pub fn iris_full_ys() {
+  iris_data.iris_full
+  |> list.map(fn(data) {
+    let assert [_, ys] = data
+    ys
+  })
+  |> dynamic.from
+  |> tensor
+}
+
+pub fn iris_train_xs() {
+  iris_data.iris_train
+  |> list.map(fn(data) {
+    let assert [xs, _] = data
+    xs
+  })
+  |> dynamic.from
+  |> tensor
+}
+
+pub fn iris_train_ys() {
+  iris_data.iris_train
+  |> list.map(fn(data) {
+    let assert [_, ys] = data
+    ys
+  })
+  |> dynamic.from
+  |> tensor
+}
+
+pub fn iris_validate_xs() {
+  iris_data.iris_validate
+  |> list.map(fn(data) {
+    let assert [xs, _] = data
+    xs
+  })
+  |> dynamic.from
+  |> tensor
+}
+
+pub fn iris_validate_ys() {
+  iris_data.iris_validate
+  |> list.map(fn(data) {
+    let assert [_, ys] = data
+    ys
+  })
+  |> dynamic.from
+  |> tensor
+}
+
+pub fn iris_test_xs() {
+  iris_data.iris_test
+  |> list.map(fn(data) {
+    let assert [xs, _] = data
+    xs
+  })
+  |> dynamic.from
+  |> tensor
+}
+
+pub fn iris_test_ys() {
+  iris_data.iris_test
+  |> list.map(fn(data) {
+    let assert [_, ys] = data
+    ys
+  })
+  |> dynamic.from
+  |> tensor
+}
+
 //*----------------------------------------
 //* Grid searching
 //*----------------------------------------
 
 pub fn accurate_enough_iris_theta(theta) {
-  accuracy(
-    model(iris_classifier(), theta),
-    iris_data.iris_test_xs(),
-    iris_data.iris_test_ys(),
-  )
+  accuracy(model(iris_classifier(), theta), iris_test_xs(), iris_test_ys())
   >=. 0.7
 }
 
@@ -80,8 +157,8 @@ pub fn grid_search_iris_theta() {
     { hp |> malt0.naked_gradient_descent }(
       { hp.batch_size |> sampling_obj }(
         l2_loss(iris_classifier()),
-        iris_data.iris_train_xs(),
-        iris_data.iris_train_ys(),
+        iris_train_xs(),
+        iris_train_ys(),
       ),
       init_theta(iris_theta_shapes()),
     )
@@ -92,8 +169,4 @@ pub fn grid_search_iris_theta() {
     alpha: [0.0001, 0.0002, 0.0005],
     batch_size: [4, 8, 16],
   )
-}
-
-pub fn run_iris() {
-  todo
 }

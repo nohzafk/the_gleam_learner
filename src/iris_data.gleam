@@ -1,10 +1,6 @@
-import gleam/dynamic
-import gleam/list
-import malt0.{tensor}
+//// THE IRIS DATA SET
 
 //------------------------------------------------------------------------
-// THE IRIS DATA SET
-
 // xs: (tensor sepal-length sepal-width petal-length petal-width)
 // ys: One of (tensor 1.0 0.0 0.0) setosa,
 //            (tensor 0.0 1.0 0.0) versicolor,
@@ -21,7 +17,7 @@ const virginica = [0.0, 0.0, 1.0]
 // The Full Data Set
 //------------------------------------------------------------------------
 
-const iris_full = [
+pub const iris_full = [
   [[5.1, 3.5, 1.4, 0.2], setosa], [[4.9, 3.0, 1.4, 0.2], setosa],
   [[4.7, 3.2, 1.3, 0.2], setosa], [[4.6, 3.1, 1.5, 0.2], setosa],
   [[5.0, 3.6, 1.4, 0.2], setosa], [[5.4, 3.9, 1.7, 0.4], setosa],
@@ -99,31 +95,11 @@ const iris_full = [
   [[7.4, 2.8, 6.1, 1.9], virginica], [[5.8, 2.7, 5.1, 1.9], virginica],
 ]
 
-pub fn iris_full_xs() {
-  iris_full
-  |> list.map(fn(data) {
-    let assert [xs, _] = data
-    xs
-  })
-  |> dynamic.from
-  |> tensor
-}
-
-pub fn iris_full_ys() {
-  iris_full
-  |> list.map(fn(data) {
-    let assert [_, ys] = data
-    ys
-  })
-  |> dynamic.from
-  |> tensor
-}
-
 //------------------------------------------------------------------------
 // The Training Set
 //------------------------------------------------------------------------
 
-const iris_train = [
+pub const iris_train = [
   [[5.1, 3.5, 1.4, 0.2], setosa], [[4.9, 3.0, 1.4, 0.2], setosa],
   [[4.7, 3.2, 1.3, 0.2], setosa], [[4.6, 3.1, 1.5, 0.2], setosa],
   [[5.0, 3.6, 1.4, 0.2], setosa], [[5.4, 3.9, 1.7, 0.4], setosa],
@@ -189,31 +165,11 @@ const iris_train = [
   [[6.2, 3.4, 5.4, 2.3], virginica], [[5.9, 3.0, 5.1, 1.8], virginica],
 ]
 
-pub fn iris_train_xs() {
-  iris_train
-  |> list.map(fn(data) {
-    let assert [xs, _] = data
-    xs
-  })
-  |> dynamic.from
-  |> tensor
-}
-
-pub fn iris_train_ys() {
-  iris_train
-  |> list.map(fn(data) {
-    let assert [_, ys] = data
-    ys
-  })
-  |> dynamic.from
-  |> tensor
-}
-
 //------------------------------------------------------------------------
 // The Validation Set
 //------------------------------------------------------------------------
 
-const iris_validate = [
+pub const iris_validate = [
   [[6.3, 2.5, 5.0, 1.9], virginica], [[7.4, 2.8, 6.1, 1.9], virginica],
   [[5.8, 2.7, 5.1, 1.9], virginica], [[6.4, 2.9, 4.3, 1.3], versicolor],
   [[6.2, 2.2, 4.5, 1.5], versicolor], [[6.0, 2.2, 4.0, 1.0], versicolor],
@@ -221,31 +177,11 @@ const iris_validate = [
   [[5.8, 4.0, 1.2, 0.2], setosa],
 ]
 
-pub fn iris_validate_xs() {
-  iris_validate
-  |> list.map(fn(data) {
-    let assert [xs, _] = data
-    xs
-  })
-  |> dynamic.from
-  |> tensor
-}
-
-pub fn iris_validate_ys() {
-  iris_validate
-  |> list.map(fn(data) {
-    let assert [_, ys] = data
-    ys
-  })
-  |> dynamic.from
-  |> tensor
-}
-
 //------------------------------------------------------------------------
 // The Test Set
 //------------------------------------------------------------------------
 
-const iris_test = [
+pub const iris_test = [
   [[5.0, 3.4, 1.5, 0.2], setosa], [[4.8, 3.0, 1.4, 0.1], setosa],
   [[5.0, 3.0, 1.6, 0.2], setosa], [[5.5, 4.2, 1.4, 0.2], setosa],
   [[5.1, 3.4, 1.5, 0.2], setosa], [[6.5, 2.8, 4.6, 1.5], versicolor],
@@ -255,23 +191,3 @@ const iris_test = [
   [[7.7, 3.8, 6.7, 2.2], virginica], [[7.7, 2.8, 6.7, 2.0], virginica],
   [[7.2, 3.0, 5.8, 1.6], virginica],
 ]
-
-pub fn iris_test_xs() {
-  iris_test
-  |> list.map(fn(data) {
-    let assert [xs, _] = data
-    xs
-  })
-  |> dynamic.from
-  |> tensor
-}
-
-pub fn iris_test_ys() {
-  iris_test
-  |> list.map(fn(data) {
-    let assert [_, ys] = data
-    ys
-  })
-  |> dynamic.from
-  |> tensor
-}

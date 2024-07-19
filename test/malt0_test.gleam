@@ -1180,3 +1180,16 @@ pub fn cartesian_product_test() {
     |> Ok,
   )
 }
+
+import iris
+
+pub fn iris_test() {
+  iris.print_note()
+}
+// import qcheck_gleeunit_utils/test_spec
+// works, but too SLOW!
+// long execution time
+// pub fn grid_search_test_() {
+//   use <- test_spec.make
+//   iris.grid_search_iris_theta()
+// }
