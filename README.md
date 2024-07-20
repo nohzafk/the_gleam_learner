@@ -1,6 +1,6 @@
 # the_gleam_learner
 
-This is [the little learner](https://www.thelittlelearner.com/#TheCode) port from **Racket** to **Gleam**.
+This is [The Little Lerner](https://www.thelittlelearner.com/#TheCode) port from **Racket** to **Gleam**.
 
 ## Nested tensor implementation
 
