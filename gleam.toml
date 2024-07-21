@@ -8,6 +8,7 @@ mat = ">= 1.0.0 and < 2.0.0"
 qcheck_gleeunit_utils = ">= 0.1.0 and < 1.0.0"
 birl = ">= 1.7.1 and < 2.0.0"
 parallel_map = ">= 2.0.0 and < 3.0.0"
+# parallel_map = { path = "../parallel_map" }
 gleam_erlang = ">= 0.25.0 and < 1.0.0"
 
 [dev-dependencies]

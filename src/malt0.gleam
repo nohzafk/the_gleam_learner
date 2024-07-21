@@ -1318,6 +1318,7 @@ pub fn grid_search(
     batch_size |> list.map(dynamic.from),
   ]
   |> cartesian_product
+  // use parallel_map.list_find_pmap
   |> parallel_map.list_pmap(
     fn(hypers) {
       let assert [revs, alpha, batch_size] = hypers
@@ -1337,12 +1338,9 @@ pub fn grid_search(
       }
     },
     parallel_map.WorkerAmount(16),
-    60 * 1000,
+    20 * 1000,
   )
 }
-
-// how can i stop the parallel execution when I find a Ok value?
-// under the hood of parallel_map.list_pmap it use erlang process
 
 // fn tensor_to_list(t: Tensor) {
 //   case t {

@@ -4,8 +4,8 @@ import gleam/list
 import gleam/string
 import iris_data
 import malt0.{
-  type Block, Block, accuracy, grid_search, init_theta, l2_loss, model, relu,
-  sampling_obj, stack_blocks, tensor,
+  type Block, type Hyperparameters, Block, accuracy, grid_search, init_theta,
+  l2_loss, model, relu, sampling_obj, stack_blocks, tensor,
 }
 
 //*----------------------------------------
@@ -152,9 +152,9 @@ pub fn accurate_enough_iris_theta(theta) {
   >=. 0.9
 }
 
-pub fn grid_search_iris_theta() {
-  fn(hp) {
-    { hp |> malt0.naked_gradient_descent }(
+pub fn grid_search_iris_theta(gs) {
+  fn(hp: Hyperparameters) {
+    { hp |> gs }(
       { hp.batch_size |> sampling_obj }(
         l2_loss(iris_classifier()),
         iris_train_xs(),
