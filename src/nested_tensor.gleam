@@ -823,33 +823,15 @@ pub fn hp_new(revs revs, alpha alpha) {
 }
 
 pub fn hp_new_mu(hp hp: Hyperparameters, mu mu: Float) {
-  Hyperparameters(
-    revs: hp.revs,
-    alpha: hp.alpha,
-    mu: mu,
-    beta: hp.beta,
-    batch_size: hp.batch_size,
-  )
+  Hyperparameters(..hp, mu: mu)
 }
 
 pub fn hp_new_beta(hp hp: Hyperparameters, beta beta: Float) {
-  Hyperparameters(
-    revs: hp.revs,
-    alpha: hp.alpha,
-    mu: hp.mu,
-    beta: beta,
-    batch_size: hp.batch_size,
-  )
+  Hyperparameters(..hp, beta: beta)
 }
 
 pub fn hp_new_batch_size(hp hp: Hyperparameters, batch_size batch_size: Int) {
-  Hyperparameters(
-    revs: hp.revs,
-    alpha: hp.alpha,
-    mu: hp.mu,
-    beta: hp.beta,
-    batch_size: batch_size,
-  )
+  Hyperparameters(..hp, batch_size: batch_size)
 }
 
 pub fn revise(f: fn(Theta) -> Theta, revs: Int, theta: Theta) -> Theta {
