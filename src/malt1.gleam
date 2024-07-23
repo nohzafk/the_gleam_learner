@@ -1,6 +1,7 @@
 //// Flat binary tensor implementation
 
 import gleam/bit_array
+import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang.{type Reference}
 import gleam/float
@@ -9,6 +10,7 @@ import gleam/io
 import gleam/list
 import gleam/result
 import gleam/string
+import gleam_community/maths/elementary.{exponential, natural_logarithm}
 import mat
 
 //----------------------------
@@ -19,7 +21,7 @@ pub const tolerace = 0.0001
 pub type Shape =
   List(Int)
 
-pub fn tensor_id() {
+pub fn get_id() {
   erlang.make_reference()
 }
 
@@ -49,7 +51,7 @@ fn build_store_helper(f: fn(Int) -> Float, size: Int, i: Int, array: BitArray) {
 
 pub fn new_flat(shape shape: Shape, store store: BitArray, offset offset: Int) {
   FlatTensor(
-    id: tensor_id(),
+    id: get_id(),
     shape: shape,
     store: store,
     offset: offset,
@@ -59,9 +61,9 @@ pub fn new_flat(shape shape: Shape, store store: BitArray, offset offset: Int) {
   )
 }
 
-pub fn to_tensor(v: Float) {
+pub fn float_to_tensor(v: Float) {
   FlatTensor(
-    id: tensor_id(),
+    id: get_id(),
     shape: [],
     store: <<v:float>>,
     offset: 0,
@@ -120,7 +122,7 @@ pub fn tref(t: Tensor, i: Int) {
     1 -> {
       let offset_bits = { t.offset + i } * 64
       let assert <<_omit:size(offset_bits), v:float, _:bits>> = t.store
-      to_tensor(v)
+      float_to_tensor(v)
     }
     _ -> {
       let assert [stride, ..] = t.strides
@@ -157,26 +159,28 @@ pub fn tlen(t: Tensor) {
   head
 }
 
-pub fn tensor(lst: Dynamic) -> Tensor {
-  case dynamic.classify(lst) {
+// Gleam language
+// this function currently accept int, float, list of int, list of float, list of list
+pub fn to_tensor(data: Dynamic) -> Tensor {
+  case dynamic.classify(data) {
     "Int" -> {
-      use x <- result.map(lst |> dynamic.int)
-      x |> int.to_float |> to_tensor
+      use x <- result.map(data |> dynamic.int)
+      x |> int.to_float |> float_to_tensor
     }
     "Float" -> {
-      use x <- result.map(lst |> dynamic.float)
-      x |> to_tensor
+      use x <- result.map(data |> dynamic.float)
+      x |> float_to_tensor
     }
     "List" -> {
-      use elements <- result.try(lst |> dynamic.list(dynamic.dynamic))
-      let tensors = elements |> list.map(tensor)
+      use elements <- result.try(data |> dynamic.list(dynamic.dynamic))
+      let tensors = elements |> list.map(to_tensor)
       tensors |> merge_flat_tensors |> Ok
     }
     type_ -> {
       Error([
         dynamic.DecodeError(
           "a number or a list of numbers",
-          type_ <> ": " <> string.inspect(lst),
+          type_ <> ": " <> string.inspect(data),
           [],
         ),
       ])
@@ -321,14 +325,6 @@ pub fn to_bitarray(floats: List(Float)) -> BitArray {
   |> list.fold(<<>>, fn(acc, v) { <<acc:bits, v:float>> })
 }
 
-pub fn scalar1_shape(_) {
-  []
-}
-
-pub fn scalar2_shape(_, _) {
-  []
-}
-
 pub fn lower_float1(f: fn(Float) -> Float) -> fn(BitArray) -> BitArray {
   fn(a_slice) {
     let assert <<a:float>> = a_slice
@@ -366,9 +362,9 @@ pub fn lower_float3(
 
 // element-wise multiplication with broadcasting
 pub fn ext1_numeric(f, m, shape_fn) {
-  fn(t: Tensor) {
+  fn(t: Tensor) -> Tensor {
     case t.rank {
-      0 -> f(t.store) |> scalarize |> to_tensor
+      0 -> f(t.store) |> scalarize |> float_to_tensor
       _ -> flat_ext1_numeric(f, m, shape_fn, t)
     }
   }
@@ -401,9 +397,9 @@ pub fn flat_ext1_numeric(
 }
 
 pub fn ext1_gradient(f, m, shape_fn) {
-  fn(t: Tensor, z: Tensor) {
+  fn(t: Tensor, z: Tensor) -> Tensor {
     case t.rank {
-      0 -> f(t.store, z.store) |> scalarize |> to_tensor
+      0 -> f(t.store, z.store) |> scalarize |> float_to_tensor
       _ -> flat_ext1_gradient(f, m, shape_fn, t, z)
     }
   }
@@ -442,9 +438,9 @@ pub fn flat_ext1_gradient(
 
 // element-wise multiplication with broadcasting
 pub fn ext2_numeric(f, m: Int, n: Int, shape_fn) {
-  fn(t: Tensor, u: Tensor) {
+  fn(t: Tensor, u: Tensor) -> Tensor {
     case t.rank, u.rank {
-      0, 0 -> f(t.store, u.store) |> scalarize |> to_tensor
+      0, 0 -> f(t.store, u.store) |> scalarize |> float_to_tensor
       _, _ -> flat_ext2_numeric(f, m, n, shape_fn, t, u)
     }
   }
@@ -572,14 +568,14 @@ pub fn desc_right(d: Int, k) {
 }
 
 pub fn ext2_gradient(f, m, n, shape_fn) {
-  fn(t: Tensor, u: Tensor, z: Tensor) {
+  fn(t: Tensor, u: Tensor, z: Tensor) -> #(Tensor, Tensor) {
     case t.rank, u.rank {
       0, 0 ->
         f(t.store, u.store, z.store)
         |> fn(stores: #(BitArray, BitArray)) {
           #(
-            stores.0 |> scalarize |> to_tensor,
-            stores.1 |> scalarize |> to_tensor,
+            stores.0 |> scalarize |> float_to_tensor,
+            stores.1 |> scalarize |> float_to_tensor,
           )
         }
       _, _ -> flat_ext2_gradient(f, m, n, shape_fn, t, u, z)
@@ -647,4 +643,444 @@ fn accumulate_gradient(acc: BitArray, offset: Int, grad: BitArray) {
 
 fn new_vec(size: Int) -> BitArray {
   list.repeat(<<0.0:float>>, size) |> bit_array.concat
+}
+
+//—————————————————–—————————————————–—————————————————–
+// Automaic Differentiation
+//—————————————————–—————————————————–—————————————————–
+pub type Dual {
+  Dual(id: Reference, tensor: Tensor, link: Link)
+}
+
+pub fn to_dual(t: Tensor) -> Dual {
+  Dual(id: get_id(), tensor: t, link: end_of_chain)
+}
+
+pub fn from_dual(d: Dual) -> Dual {
+  Dual(id: d.id, tensor: d.tensor, link: end_of_chain)
+}
+
+pub type GradientState =
+  Dict(Dual, Tensor)
+
+pub type Link =
+  fn(Dual, Tensor, GradientState) -> GradientState
+
+/// Chain rule
+/// non-differentiable add
+pub fn add_numeric(a, b) {
+  let f = float.add |> lower_float2 |> ext2_numeric(0, 0, fn(_, _) { [] })
+  f(a, b)
+}
+
+pub fn end_of_chain(d: Dual, z: Tensor, sigma: GradientState) {
+  let g = dict.get(sigma, d) |> result.unwrap(float_to_tensor(0.0))
+  dict.insert(sigma, d, add_numeric(z, g))
+}
+
+//----------------------------
+// Reverse-mode AD
+//----------------------------
+pub type Differentiable {
+  DualDiff(Dual)
+  ListDiff(List(Differentiable))
+}
+
+pub fn to_diff(data: Dynamic) -> Differentiable {
+  case dynamic.classify(data) {
+    "Int" -> {
+      use _ <- result.map(data |> dynamic.int)
+      data |> to_tensor |> to_dual |> DualDiff
+    }
+    "Float" -> {
+      use _ <- result.map(data |> dynamic.float)
+      data |> to_tensor |> to_dual |> DualDiff
+    }
+    "List" -> {
+      use elements <- result.map(data |> dynamic.list(dynamic.dynamic))
+      elements
+      |> list.map(fn(ele) {
+        ele |> dynamic.from |> to_tensor |> to_dual |> DualDiff
+      })
+      |> ListDiff
+    }
+    type_ -> {
+      Error([
+        dynamic.DecodeError(
+          "a number or a list of numbers",
+          mat.format2("{}: {}", type_, data),
+          [],
+        ),
+      ])
+    }
+  }
+  |> result.try_recover(fn(error) {
+    io.debug(error)
+    Error(error)
+  })
+  |> result.lazy_unwrap(fn() { panic as "Fail to decode as a Tensor" })
+}
+
+pub fn map_tensor_recursively(
+  f: fn(Dual) -> Dual,
+  y: Differentiable,
+) -> Differentiable {
+  case y {
+    DualDiff(d) -> f(d) |> DualDiff
+    ListDiff(lst) -> lst |> list.map(map_tensor_recursively(f, _)) |> ListDiff
+  }
+}
+
+pub fn gradient_of(
+  f: fn(Differentiable) -> Differentiable,
+  theta: Differentiable,
+) {
+  let wrt = map_tensor_recursively(from_dual, theta)
+  gradient_once(f(wrt), wrt)
+}
+
+pub fn gradient_once(y, wrt) {
+  let sigma = gradient_sigma(y, dict.new())
+  map_tensor_recursively(
+    fn(d) {
+      sigma |> dict.get(d) |> result.unwrap(float_to_tensor(0.0)) |> to_dual
+    },
+    wrt,
+  )
+}
+
+pub fn one_like(t: Tensor) {
+  new_flat(t.shape, list.repeat(1.0, size_of(t.shape)) |> to_bitarray, 0)
+}
+
+fn gradient_sigma(y, sigma) {
+  case y {
+    DualDiff(d) -> d.link(d, one_like(d.tensor), sigma)
+    ListDiff(lst) -> gradient_sigma_list(lst, sigma)
+  }
+}
+
+fn gradient_sigma_list(lst: List(Differentiable), sigma) {
+  case lst {
+    [] -> sigma
+    [head, ..rest] -> {
+      sigma |> gradient_sigma(head, _) |> gradient_sigma_list(rest, _)
+    }
+  }
+}
+
+//----------------------------
+// Dualized tensor op creators
+//----------------------------
+pub type Prim1Fn {
+  Prim1Fn(
+    numeric_fn: fn(Float) -> Float,
+    gradient_fn: fn(Float, Float) -> Float,
+    shape_fn: fn(Shape) -> Shape,
+  )
+}
+
+pub type Prim2Fn {
+  Prim2Fn(
+    numeric_fn: fn(Float, Float) -> Float,
+    gradient_fn: fn(Float, Float, Float) -> #(Float, Float),
+    shape_fn: fn(Shape, Shape) -> Shape,
+  )
+}
+
+pub fn default_shape_fn_1(shape: Shape) -> Shape {
+  case shape {
+    [] -> []
+    [head, ..] -> [head]
+  }
+}
+
+pub fn default_shape_fn_2(shape: Shape, _: Shape) -> Shape {
+  shape
+}
+
+/// prim_dual function creates a differentiable function that operates on Dual values
+///
+/// Constructs a differentiable function (known as a primitive) of one Dual value
+/// argument that invokes ρ-fn to compute the result of the application of the
+/// primitive, and uses ∇-fn to find the gradient of the result with respect to the
+/// argument provided to the primitive.
+pub fn prim1_dual(numeric_fn, gradient_fn) {
+  fn(da: Dual) {
+    Dual(
+      //
+      id: get_id(),
+      //
+      tensor: numeric_fn(da.tensor),
+      //
+      link: fn(_d, z, sigma) {
+        let ga = gradient_fn(da.tensor, z)
+        sigma
+        |> da.link(da, ga, _)
+      },
+    )
+  }
+}
+
+pub fn prim2_dual(numeric_fn, gradient_fn) {
+  fn(da: Dual, db: Dual) {
+    Dual(
+      //
+      id: get_id(),
+      //
+      tensor: numeric_fn(da.tensor, db.tensor),
+      //
+      link: fn(_d, z, sigma) {
+        let #(ga, gb) = gradient_fn(da.tensor, db.tensor, z)
+        sigma
+        |> da.link(da, ga, _)
+        |> db.link(db, gb, _)
+      },
+    )
+  }
+}
+
+/// ext function extend the prim opeartor to apply to tensors of certain shapes
+pub fn ext1(prim_fn: Prim1Fn, n: Int) {
+  prim1_dual(
+    ext1_numeric(prim_fn.numeric_fn |> lower_float1, n, prim_fn.shape_fn),
+    ext1_gradient(prim_fn.gradient_fn |> lower_float2, n, prim_fn.shape_fn),
+  )
+}
+
+pub fn ext2(prim_fn: Prim2Fn, m: Int, n: Int) {
+  prim2_dual(
+    ext2_numeric(prim_fn.numeric_fn |> lower_float2, m, n, prim_fn.shape_fn),
+    ext2_gradient(prim_fn.gradient_fn |> lower_float3, m, n, prim_fn.shape_fn),
+  )
+}
+
+//----------------------------
+// A-scalar-ops
+//----------------------------
+pub fn unwrap_ok_number(op, x) {
+  let assert Ok(r) = op(x)
+  r
+}
+
+pub fn unwrap_ok_number2(op, x, y) {
+  let assert Ok(r) = op(x, y)
+  r
+}
+
+pub fn add_0_0() {
+  Prim2Fn(
+    numeric_fn: float.add,
+    gradient_fn: fn(_a, _b, z) { #(z, z) },
+    shape_fn: default_shape_fn_2,
+  )
+}
+
+pub fn subtract_0_0() {
+  Prim2Fn(
+    numeric_fn: float.subtract,
+    gradient_fn: fn(_a, _b, z) { #(z, float.negate(z)) },
+    shape_fn: default_shape_fn_2,
+  )
+}
+
+pub fn multiply_0_0() {
+  Prim2Fn(
+    numeric_fn: float.multiply,
+    gradient_fn: fn(a, b, z) { #(b *. z, a *. z) },
+    shape_fn: default_shape_fn_2,
+  )
+}
+
+pub fn divide_0_0() {
+  Prim2Fn(
+    numeric_fn: fn(x, y) { x /. y },
+    gradient_fn: fn(a, b, z) {
+      #(z *. { 1.0 /. b }, z *. float.negate(a) /. { b *. b })
+    },
+    shape_fn: default_shape_fn_2,
+  )
+}
+
+pub fn expt_0_0() {
+  Prim2Fn(
+    numeric_fn: fn(x, y) {
+      let assert Ok(r) = float.power(x, y)
+      r
+    },
+    gradient_fn: fn(a, b, z) {
+      let assert Ok(r1) = float.power(a, b -. 1.0)
+      let assert Ok(r2) = float.power(a, b)
+      let assert Ok(log_r) = natural_logarithm(a)
+      #(z *. b *. r1, z *. r2 *. log_r)
+    },
+    shape_fn: default_shape_fn_2,
+  )
+}
+
+/// natural exponential
+pub fn exp_0() {
+  Prim1Fn(
+    numeric_fn: exponential,
+    gradient_fn: fn(a, z) { z *. exponential(a) },
+    shape_fn: default_shape_fn_1,
+  )
+}
+
+/// natural logarithm
+pub fn log_0() {
+  Prim1Fn(
+    numeric_fn: unwrap_ok_number(natural_logarithm, _),
+    gradient_fn: fn(a, z) { z *. { 1.0 /. a } },
+    shape_fn: default_shape_fn_1,
+  )
+}
+
+pub fn sqrt_0() {
+  Prim1Fn(
+    numeric_fn: unwrap_ok_number(float.square_root, _),
+    gradient_fn: fn(x, z) {
+      let assert Ok(r) = float.square_root(x)
+      z /. { 2.0 *. r }
+    },
+    shape_fn: default_shape_fn_1,
+  )
+}
+
+pub fn abs_0() {
+  Prim1Fn(
+    numeric_fn: float.absolute_value,
+    gradient_fn: fn(x, z) {
+      case x <. 0.0 {
+        True -> float.negate(z)
+        _ -> z
+      }
+    },
+    shape_fn: default_shape_fn_1,
+  )
+}
+
+pub fn rectify_0() {
+  Prim1Fn(
+    numeric_fn: fn(s) {
+      case s <. 0.0 {
+        True -> 0.0
+        _ -> s
+      }
+    },
+    gradient_fn: fn(s, z) {
+      case s <. 0.0 {
+        True -> 0.0
+        _ -> z
+      }
+    },
+    shape_fn: fn(s) { s },
+  )
+}
+
+//------------------------------------
+// differentiable extended functions.
+//------------------------------------
+
+pub fn d_multiply(da, db) {
+  { multiply_0_0() |> ext2(0, 0) }(da, db)
+}
+
+pub fn d_add(da, db) {
+  { add_0_0() |> ext2(0, 0) }(da, db)
+}
+
+pub fn d_subtract(da, db) {
+  { subtract_0_0() |> ext2(0, 0) }(da, db)
+}
+
+pub fn d_divide(da, db) {
+  { divide_0_0() |> ext2(0, 0) }(da, db)
+}
+
+pub fn d_expt(da, db) {
+  { expt_0_0() |> ext2(0, 0) }(da, db)
+}
+
+pub fn d_exp(da) {
+  { exp_0() |> ext1(0) }(da)
+}
+
+pub fn d_log(da) {
+  { log_0() |> ext1(0) }(da)
+}
+
+pub fn d_abs(da) {
+  { abs_0() |> ext1(0) }(da)
+}
+
+pub fn d_rectify(da) {
+  { rectify_0() |> ext1(0) }(da)
+}
+
+pub fn d_sqrt(da) {
+  { sqrt_0() |> ext1(0) }(da)
+}
+
+pub fn d_sqr(da) {
+  d_multiply(da, da)
+}
+
+//------------------------------------
+// non-differentiable extended functions.
+//------------------------------------
+pub fn scalar_shape_fn_1(_) {
+  []
+}
+
+pub fn scalar_shape_fn_2(_, _) {
+  []
+}
+
+fn numeric_op_1(prim_fn: Prim1Fn, n) {
+  prim_fn.numeric_fn |> lower_float1 |> ext1_numeric(n, scalar_shape_fn_1)
+}
+
+fn numeric_op_2(prim_fn: Prim2Fn, m, n) {
+  prim_fn.numeric_fn |> lower_float2 |> ext2_numeric(m, n, scalar_shape_fn_2)
+}
+
+pub fn multiply_numeric(t, u) {
+  { multiply_0_0() |> numeric_op_2(0, 0) }(t, u)
+}
+
+pub fn subtract_numeric(t, u) {
+  { subtract_0_0() |> numeric_op_2(0, 0) }(t, u)
+}
+
+pub fn divide_numeric(t, u) {
+  { divide_0_0() |> numeric_op_2(0, 0) }(t, u)
+}
+
+pub fn expt_numeric(t, u) {
+  { expt_0_0() |> numeric_op_2(0, 0) }(t, u)
+}
+
+pub fn exp_numeric(t) {
+  { exp_0() |> numeric_op_1(0) }(t)
+}
+
+pub fn log_numeric(t) {
+  { log_0() |> numeric_op_1(0) }(t)
+}
+
+pub fn abs_numeric(t) {
+  { abs_0() |> numeric_op_1(0) }(t)
+}
+
+pub fn rectify_numeric(t) {
+  { rectify_0() |> numeric_op_1(0) }(t)
+}
+
+pub fn sqrt_numeric(t) {
+  expt_numeric(t, float_to_tensor(0.5))
+}
+
+pub fn sqr_numeric(t) {
+  multiply_numeric(t, t)
 }

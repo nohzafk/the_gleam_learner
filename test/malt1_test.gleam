@@ -1,18 +1,29 @@
 import gleam/bit_array
-import gleam/dynamic
-import gleam/erlang/atom
+import gleam/bool
+import gleam/dynamic.{type Dynamic}
 import gleam/float
 import gleam/int
-import gleam/io
 import gleam/list
+import gleam_community/maths/elementary.{exponential, natural_logarithm}
 import gleeunit/should
-import malt0
 import malt1.{
-  type Shape, type Tensor, bitarray_to_floats, build_store, build_tensor,
+  type Differentiable, type Dual, type Shape, type Tensor, Dual, DualDiff,
+  ListDiff, add_numeric, bitarray_to_floats, build_store, build_tensor, d_add,
+  d_divide, d_exp, d_expt, d_log, d_multiply, d_sqr, d_sqrt, d_subtract,
   equal_elements, ext1_gradient, ext1_numeric, ext2_gradient, ext2_numeric,
-  ext2_shapes, float_bits_walker, floats_to_tensor, idxs, lower_float2,
-  lower_float3, merge_shapes, min_shape, new_flat, rank, reshape, shape, size_of,
-  store, tensor, tensor_equal, tlen, to_bitarray, to_tensor, tref, trefs,
+  ext2_shapes, float_bits_walker, float_to_tensor, floats_to_tensor, gradient_of,
+  gradient_once, idxs, lower_float2, lower_float3, map_tensor_recursively,
+  merge_shapes, min_shape, new_flat, rank, reshape, shape, size_of, store,
+  tensor_equal, tlen, to_bitarray, to_diff, to_dual, to_tensor, tref, trefs,
+  unwrap_ok_number, unwrap_ok_number2,
+}
+
+pub fn scalar1_shape(_) {
+  []
+}
+
+pub fn scalar2_shape(_, _) {
+  []
 }
 
 fn tensor_should_equal(actual, expected) {
@@ -74,7 +85,7 @@ pub fn equality_test() {
 }
 
 pub fn tensor_basics_test() {
-  let r1_td = [3, 4, 5] |> dynamic.from |> tensor
+  let r1_td = [3, 4, 5] |> dynamic.from |> to_tensor
   let r3_td =
     [
       [[0, 1], [2, 3], [4, 5]],
@@ -83,9 +94,9 @@ pub fn tensor_basics_test() {
       [[18, 19], [20, 21], [22, 23]],
     ]
     |> dynamic.from
-    |> tensor
+    |> to_tensor
 
-  r1_td |> tref(2) |> tensor_should_equal(to_tensor(5.0))
+  r1_td |> tref(2) |> tensor_should_equal(5.0 |> float_to_tensor)
   r1_td |> tlen |> should.equal(3)
   [3.0, 4.0, 5.0] |> floats_to_tensor |> tensor_should_equal(r1_td)
 
@@ -99,20 +110,20 @@ pub fn tensor_basics_test() {
     let assert [a, b, c] = idx
     { a + b + c } |> int.to_float
   })
-  |> tensor_should_equal([[[0, 1, 2], [1, 2, 3]]] |> dynamic.from |> tensor)
+  |> tensor_should_equal([[[0, 1, 2], [1, 2, 3]]] |> dynamic.from |> to_tensor)
 
   r1_td
   |> trefs([0, 2])
-  |> tensor_should_equal([3, 5] |> dynamic.from |> tensor)
+  |> tensor_should_equal([3, 5] |> dynamic.from |> to_tensor)
 }
 
 pub fn tensor_operations_test() {
-  let r0_td = to_tensor(3.0)
-  let r1_td = [3, 4, 5] |> dynamic.from |> tensor
+  let r0_td = float_to_tensor(3.0)
+  let r1_td = [3, 4, 5] |> dynamic.from |> to_tensor
   let r2_td =
     [[3, 4, 5], [7, 8, 9]]
     |> dynamic.from
-    |> tensor
+    |> to_tensor
   let r3_td =
     [
       [[0, 1], [2, 3], [4, 5]],
@@ -121,7 +132,7 @@ pub fn tensor_operations_test() {
       [[18, 19], [20, 21], [22, 23]],
     ]
     |> dynamic.from
-    |> tensor
+    |> to_tensor
 
   r0_td |> shape |> should.equal([])
   r1_td |> shape |> should.equal([3])
@@ -142,7 +153,7 @@ pub fn tensor_operations_test() {
       21, 22, 23,
     ]
     |> dynamic.from
-    |> tensor,
+    |> to_tensor,
   )
 }
 
@@ -177,7 +188,7 @@ pub fn extend_ops_ext1_numeric_test() {
 
     let dup_shape_f = fn(in_f_shape: Shape) -> Shape {
       case in_f_shape {
-        [x, ..rest] -> [x * 2, ..rest]
+        [x, ..] -> [x * 2]
         _ -> panic as "Invalid shape for dup"
       }
     }
@@ -247,7 +258,7 @@ pub fn extend_ops_ext2_shapes_test() {
 
 pub fn extend_ops_ext2_numeric_test() {
   let multiply_numeric =
-    float.multiply |> lower_float2 |> ext2_numeric(0, 0, malt1.scalar2_shape)
+    float.multiply |> lower_float2 |> ext2_numeric(0, 0, scalar2_shape)
 
   let t0 =
     new_flat([2, 3, 4], build_store(24, fn(i) { { 2 * i } |> int.to_float }), 0)
@@ -341,7 +352,6 @@ pub fn extend_ops_ext2_multiply_2_1_test() {
 }
 
 pub fn extend_ops_ext_gradient_test() {
-  let r0_td = to_tensor(3.0)
   let r1_td = new_flat([3], [3.0, 4.0, 5.0] |> to_bitarray, 0)
   let r2_td = new_flat([2, 3], [3.0, 4.0, 5.0, 7.0, 8.0, 9.0] |> to_bitarray, 0)
 
@@ -350,11 +360,10 @@ pub fn extend_ops_ext_gradient_test() {
   }
 
   {
-    let sqr_numeric = fn(a) { a *. a }
     let sqr_gradient = fn(a, z) { z *. 2.0 *. a }
 
     let tensor_sqr =
-      sqr_gradient |> lower_float2 |> ext1_gradient(0, malt1.scalar1_shape)
+      sqr_gradient |> lower_float2 |> ext1_gradient(0, scalar1_shape)
 
     tensor_sqr(r1_td, r1_td |> one_like)
     |> store
@@ -366,9 +375,8 @@ pub fn extend_ops_ext_gradient_test() {
     |> should.equal([6.0, 8.0, 10.0, 14.0, 16.0, 18.0] |> to_bitarray)
   }
 
-  let add_numeric = float.add
   let add_gradient = fn(_a, _b, z) { #(z, z) }
-  let tensor_add = add_gradient |> ext2_gradient(0, 0, malt1.scalar2_shape)
+  let tensor_add = add_gradient |> ext2_gradient(0, 0, scalar2_shape)
   {
     let #(ta, tb) = tensor_add(r1_td, r1_td, r1_td |> one_like)
     ta.shape |> should.equal([3])
@@ -390,38 +398,467 @@ pub fn extend_ops_ext_gradient_test() {
     let multiply_gradient =
       fn(a, b, z) { #(z *. b, z *. a) }
       |> lower_float3
-      |> ext2_gradient(0, 0, malt1.scalar2_shape)
+      |> ext2_gradient(0, 0, scalar2_shape)
 
     let #(gt, gu) =
       multiply_gradient(
-        [2, 3, 4] |> dynamic.from |> tensor,
-        [1, 2, 3] |> dynamic.from |> tensor,
-        [1, 1, 1] |> dynamic.from |> tensor,
+        [2, 3, 4] |> dynamic.from |> to_tensor,
+        [1, 2, 3] |> dynamic.from |> to_tensor,
+        [1, 1, 1] |> dynamic.from |> to_tensor,
       )
 
-    gt |> tensor_should_equal([1, 2, 3] |> dynamic.from |> tensor)
-    gu |> tensor_should_equal([2, 3, 4] |> dynamic.from |> tensor)
+    gt |> tensor_should_equal([1, 2, 3] |> dynamic.from |> to_tensor)
+    gu |> tensor_should_equal([2, 3, 4] |> dynamic.from |> to_tensor)
   }
   {
     let sum_1_gradient = fn(g: BitArray, vz: BitArray) -> BitArray {
       let assert <<z:float>> = vz
-      float_bits_walker(fn(acc, v) { <<acc:bits, z:float>> }, g, <<>>)
+      float_bits_walker(fn(acc, _v) { <<acc:bits, z:float>> }, g, <<>>)
     }
-    let sum_gradient = sum_1_gradient |> ext1_gradient(1, malt1.scalar1_shape)
+    let sum_gradient = sum_1_gradient |> ext1_gradient(1, scalar1_shape)
 
-    sum_gradient([2, 3, 4] |> dynamic.from |> tensor, to_tensor(1.0))
-    |> tensor_should_equal([1, 1, 1] |> dynamic.from |> tensor)
+    sum_gradient([2, 3, 4] |> dynamic.from |> to_tensor, float_to_tensor(1.0))
+    |> tensor_should_equal([1, 1, 1] |> dynamic.from |> to_tensor)
 
     sum_gradient(
       [[2, 3, 4], [2, 3, 4]]
         |> dynamic.from
-        |> tensor,
-      [2, 1] |> dynamic.from |> tensor,
+        |> to_tensor,
+      [2, 1] |> dynamic.from |> to_tensor,
     )
     |> tensor_should_equal(
       [[2, 2, 2], [1, 1, 1]]
       |> dynamic.from
-      |> tensor,
+      |> to_tensor,
     )
   }
+}
+
+fn differentiable_compare(x: Differentiable, y: Differentiable) {
+  case x, y {
+    DualDiff(a), DualDiff(b) -> tensor_equal(a.tensor, b.tensor)
+    ListDiff(a), ListDiff(b) ->
+      list.map2(a, b, differentiable_compare) |> list.fold(True, bool.and)
+    _, _ -> False
+  }
+}
+
+fn differentiable_to_floats(x: Differentiable) -> Dynamic {
+  case x {
+    DualDiff(a) -> a.tensor.store |> bitarray_to_floats |> dynamic.from
+    ListDiff(a) -> a |> list.map(differentiable_to_floats) |> dynamic.from
+  }
+}
+
+pub fn differentiable_should_equal(x: Differentiable, y: Differentiable) {
+  case differentiable_compare(x, y) {
+    True -> should.be_true(True)
+    _ -> should.equal(differentiable_to_floats(x), differentiable_to_floats(y))
+  }
+}
+
+fn as_dual(y: Differentiable) {
+  let assert DualDiff(d) = y
+  d
+}
+
+fn get_tensor(d: Dual) {
+  d.tensor
+}
+
+pub fn map_tensor_recursively_test() {
+  let t =
+    [0.0, 1.0, 2.0, 3.0] |> dynamic.from |> to_tensor |> to_dual |> DualDiff
+
+  fn(d: Dual) {
+    Dual(d.id, d.tensor |> add_numeric(float_to_tensor(1.0)), d.link)
+  }
+  |> map_tensor_recursively(t)
+  |> as_dual
+  |> get_tensor
+  |> tensor_should_equal([1.0, 2.0, 3.0, 4.0] |> dynamic.from |> to_tensor)
+}
+
+pub fn autodiff_test() {
+  let dual0 = float_to_tensor(0.0) |> to_dual
+  let dual1 = float_to_tensor(1.0) |> to_dual
+
+  map_tensor_recursively(
+    fn(d: Dual) { d },
+    gradient_once(
+      dual1 |> DualDiff,
+      [dual0, dual1] |> list.map(fn(x) { DualDiff(x) }) |> ListDiff,
+    ),
+  )
+  |> differentiable_should_equal([0.0, 1.0] |> dynamic.from |> to_diff)
+}
+
+pub fn check_gradients1(f, t, gradients) {
+  let f_wrapper = fn(lst) {
+    let assert ListDiff([a]) = lst
+    f(a |> as_dual) |> DualDiff
+  }
+  let theta = [t] |> list.map(fn(x) { x |> to_dual |> DualDiff }) |> ListDiff
+
+  gradient_of(f_wrapper, theta) |> differentiable_should_equal(gradients)
+}
+
+pub fn check_gradients2(f, t, u, gradients) {
+  let f_wrapper = fn(lst) {
+    let assert ListDiff([a, b]) = lst
+    f(a |> as_dual, b |> as_dual) |> DualDiff
+  }
+  let theta = [t, u] |> list.map(fn(x) { x |> to_dual |> DualDiff }) |> ListDiff
+
+  gradient_of(f_wrapper, theta) |> differentiable_should_equal(gradients)
+}
+
+pub fn check_theta1(f, t, answers) {
+  f(t |> to_dual) |> get_tensor |> tensor_should_equal(answers)
+}
+
+pub fn check_theta2(f, t, u, answers) {
+  f(t |> to_dual, u |> to_dual) |> get_tensor |> tensor_should_equal(answers)
+}
+
+pub fn check_theta_and_gradient1(f) {
+  fn(t: Tensor, answers: Tensor, gradients: Differentiable) {
+    check_theta1(f, t, answers)
+    check_gradients1(f, t, gradients)
+  }
+}
+
+pub fn check_theta_and_gradient2(f) {
+  fn(t: Tensor, u: Tensor, answers: Tensor, gradients: Differentiable) {
+    check_theta2(f, t, u, answers)
+    check_gradients2(f, t, u, gradients)
+  }
+}
+
+pub fn a_scalar_ops_test() {
+  let a = float_to_tensor(2.0)
+  let b = float_to_tensor(3.0)
+
+  { d_add |> check_theta_and_gradient2 }(
+    a,
+    b,
+    float_to_tensor(5.0),
+    [1, 1] |> dynamic.from |> to_diff,
+  )
+  { d_subtract |> check_theta_and_gradient2 }(
+    a,
+    b,
+    float_to_tensor(-1.0),
+    [1, -1] |> dynamic.from |> to_diff,
+  )
+  { d_multiply |> check_theta_and_gradient2 }(
+    a,
+    b,
+    float_to_tensor(6.0),
+    [3.0, 2.0] |> dynamic.from |> to_diff,
+  )
+  { d_divide |> check_theta_and_gradient2 }(
+    a,
+    b,
+    float_to_tensor(2.0 /. 3.0),
+    [0.3333333333333333, -0.2222222222222222]
+      |> dynamic.from
+      |> to_diff,
+  )
+  { d_exp |> check_theta_and_gradient1 }(
+    a,
+    exponential(2.0) |> float_to_tensor,
+    [exponential(2.0)] |> dynamic.from |> to_diff,
+  )
+  { d_log |> check_theta_and_gradient1 }(
+    a,
+    unwrap_ok_number(natural_logarithm, 2.0) |> float_to_tensor,
+    [0.5] |> dynamic.from |> to_diff,
+  )
+  { d_expt |> check_theta_and_gradient2 }(
+    a,
+    b,
+    float_to_tensor(8.0),
+    [12.0, 5.545177444479562] |> dynamic.from |> to_diff,
+  )
+  { d_sqrt |> check_theta_and_gradient1 }(
+    a,
+    unwrap_ok_number(float.square_root, 2.0) |> float_to_tensor,
+    [0.3535533905932738] |> dynamic.from |> to_diff,
+  )
+  check_gradients1(
+    d_sqr,
+    float_to_tensor(3.0),
+    [6.0] |> dynamic.from |> to_diff,
+  )
+
+  check_gradients2(
+    fn(x, y) { d_add(d_log(x), d_multiply(x, y)) },
+    float_to_tensor(2.0),
+    float_to_tensor(2.0),
+    [2.5, 2.0] |> dynamic.from |> to_diff,
+  )
+}
+
+pub fn a_scalar_ops_numeric_test() {
+  // Check numericals with vector-duals
+  let a = [2, 3, 4] |> dynamic.from |> to_tensor
+  let b = [3, 8, 9] |> dynamic.from |> to_tensor
+  { d_add |> check_theta_and_gradient2 }(
+    a,
+    b,
+    [5, 11, 13] |> dynamic.from |> to_tensor,
+    [[1, 1, 1], [1, 1, 1]]
+      |> dynamic.from
+      |> to_diff,
+  )
+  { d_subtract |> check_theta_and_gradient2 }(
+    a,
+    b,
+    [-1, -5, -5] |> dynamic.from |> to_tensor,
+    [[1, 1, 1], [-1, -1, -1]]
+      |> dynamic.from
+      |> to_diff,
+  )
+  { d_multiply |> check_theta_and_gradient2 }(
+    a,
+    b,
+    [6, 24, 36]
+      |> dynamic.from
+      |> to_tensor,
+    [[3, 8, 9], [2, 3, 4]]
+      |> dynamic.from
+      |> to_diff,
+  )
+  { d_divide |> check_theta_and_gradient2 }(
+    a,
+    b,
+    [2.0 /. 3.0, 3.0 /. 8.0, 4.0 /. 9.0]
+      |> dynamic.from
+      |> to_tensor,
+    [
+      [0.3333333333333333, 0.125, 0.1111111111111111],
+      [-0.2222222222222222, -0.046875, -0.04938271604938271],
+    ]
+      |> dynamic.from
+      |> to_diff,
+  )
+  { d_exp |> check_theta_and_gradient1 }(
+    a,
+    [exponential(2.0), exponential(3.0), exponential(4.0)]
+      |> dynamic.from
+      |> to_tensor,
+    [[exponential(2.0), exponential(3.0), exponential(4.0)]]
+      |> dynamic.from
+      |> to_diff,
+  )
+  { d_log |> check_theta_and_gradient1 }(
+    a,
+    [2.0, 3.0, 4.0]
+      |> list.map(unwrap_ok_number(natural_logarithm, _))
+      |> dynamic.from
+      |> to_tensor,
+    [[0.5, 1.0 /. 3.0, 1.0 /. 4.0]]
+      |> dynamic.from
+      |> to_diff,
+  )
+  { d_expt |> check_theta_and_gradient2 }(
+    a,
+    b,
+    [
+      unwrap_ok_number2(float.power, 2.0, 3.0),
+      unwrap_ok_number2(float.power, 3.0, 8.0),
+      unwrap_ok_number2(float.power, 4.0, 9.0),
+    ]
+      |> dynamic.from
+      |> to_tensor,
+    [
+      [12.0, 17_496.0, 589_824.0],
+      [5.545177444479562, 7207.9952259514685, 363_408.7490014126],
+    ]
+      |> dynamic.from
+      |> to_diff,
+  )
+  { d_sqrt |> check_theta_and_gradient1 }(
+    a,
+    [
+      unwrap_ok_number(float.square_root, 2.0),
+      unwrap_ok_number(float.square_root, 3.0),
+      unwrap_ok_number(float.square_root, 4.0),
+    ]
+      |> dynamic.from
+      |> to_tensor,
+    [[0.3535533905932738, 0.28867513459481287, 0.25]]
+      |> dynamic.from
+      |> to_diff,
+  )
+  { d_sqr |> check_theta_and_gradient1 }(
+    b,
+    [9, 64, 81] |> dynamic.from |> to_tensor,
+    [[6, 16, 18]]
+      |> dynamic.from
+      |> to_diff,
+  )
+  check_gradients2(
+    fn(x, y) { d_add(d_log(x), d_multiply(x, y)) },
+    [2, 3, 4] |> dynamic.from |> to_tensor,
+    [2, 3, 4] |> dynamic.from |> to_tensor,
+    [[2.5, 3.3333333333333335, 4.25], [2.0, 3.0, 4.0]]
+      |> dynamic.from
+      |> to_diff,
+  )
+  check_gradients2(
+    fn(x, y) { d_add(d_log(x), d_multiply(x, y)) },
+    a,
+    a,
+    [[2.5, 3.3333333333333335, 4.25], [2.0, 3.0, 4.0]]
+      |> dynamic.from
+      |> to_diff,
+  )
+}
+
+pub fn a_scalar_ops_numeric_lists_test() {
+  let duals_to_differentiable = fn(duals) {
+    duals |> list.map(DualDiff(_)) |> ListDiff
+  }
+  let tensors_to_differentiable = fn(tensors) {
+    tensors |> list.map(to_dual) |> duals_to_differentiable
+  }
+  let lift_op = fn(op: fn(Dual, Dual) -> Differentiable) {
+    fn(theta) {
+      let assert ListDiff([DualDiff(m), DualDiff(n)]) = theta
+      op(m, n)
+    }
+  }
+  let check_gradient_of = fn(op, wrt, gradients) {
+    gradient_of(op |> lift_op, wrt |> tensors_to_differentiable)
+    |> differentiable_should_equal(gradients)
+  }
+
+  // Check numericals with lists
+  let x = float_to_tensor(3.0)
+  let y = float_to_tensor(2.0)
+  let f = d_multiply
+  { d_multiply |> check_theta_and_gradient2 }(
+    x,
+    y,
+    float_to_tensor(6.0),
+    [2.0, 3.0] |> dynamic.from |> to_diff,
+  )
+
+  check_gradient_of(
+    fn(m, n) { [f(m, m), f(n, n)] |> duals_to_differentiable },
+    //
+    [x, y],
+    [6, 4] |> dynamic.from |> to_diff,
+  )
+
+  check_gradient_of(
+    fn(m, n) {
+      [
+        [f(m, m), f(n, n)] |> duals_to_differentiable,
+        [f(m, m), f(n, n)] |> duals_to_differentiable,
+      ]
+      |> ListDiff
+    },
+    //
+    [x, y],
+    [12, 8] |> dynamic.from |> to_diff,
+  )
+
+  check_gradient_of(
+    fn(m, n) {
+      [m, n] |> list.map(fn(x) { f(x, x) }) |> duals_to_differentiable
+    },
+    //
+    [x, y],
+    [6, 4] |> dynamic.from |> to_diff,
+  )
+
+  check_gradient_of(
+    fn(m, n) { list.map2([m, n], [m, n], f) |> duals_to_differentiable },
+    [x, y],
+    [6, 4] |> dynamic.from |> to_diff,
+  )
+
+  check_gradient_of(
+    fn(m, n) { list.map2([m, n], [n, m], f) |> duals_to_differentiable },
+    //
+    [x, y],
+    [4, 6] |> dynamic.from |> to_diff,
+  )
+  {
+    let a = float_to_tensor(7.0)
+    let b = [13] |> dynamic.from |> to_tensor
+
+    { d_add |> check_theta_and_gradient2 }(
+      a,
+      b,
+      [20] |> dynamic.from |> to_tensor,
+      [
+        float_to_tensor(1.0),
+        //
+        [1.0] |> dynamic.from |> to_tensor,
+      ]
+        |> tensors_to_differentiable,
+    )
+    { d_multiply |> check_theta_and_gradient2 }(
+      a,
+      b,
+      [91] |> dynamic.from |> to_tensor,
+      [
+        float_to_tensor(13.0),
+        //
+        [7.0] |> dynamic.from |> to_tensor,
+      ]
+        |> tensors_to_differentiable,
+    )
+    { d_divide |> check_theta_and_gradient2 }(
+      a,
+      b,
+      [7.0 /. 13.0] |> dynamic.from |> to_tensor,
+      [
+        float_to_tensor(0.07692),
+        //
+        [-0.04142] |> dynamic.from |> to_tensor,
+      ]
+        |> tensors_to_differentiable,
+    )
+  }
+  let a = float_to_tensor(7.0)
+  let b = [13, 15] |> dynamic.from |> to_tensor
+
+  { d_add |> check_theta_and_gradient2 }(
+    a,
+    b,
+    [20, 22] |> dynamic.from |> to_tensor,
+    [
+      float_to_tensor(2.0),
+      //
+      [1, 1] |> dynamic.from |> to_tensor,
+    ]
+      |> tensors_to_differentiable,
+  )
+  { d_multiply |> check_theta_and_gradient2 }(
+    a,
+    b,
+    [91, 105] |> dynamic.from |> to_tensor,
+    [
+      float_to_tensor(28.0),
+      //
+      [7, 7] |> dynamic.from |> to_tensor,
+    ]
+      |> tensors_to_differentiable,
+  )
+  { d_divide |> check_theta_and_gradient2 }(
+    a,
+    b,
+    [7.0 /. 13.0, 7.0 /. 15.0] |> dynamic.from |> to_tensor,
+    [
+      float_to_tensor(0.14358),
+      //
+      [-0.04142, -0.03111] |> dynamic.from |> to_tensor,
+    ]
+      |> tensors_to_differentiable,
+  )
 }
