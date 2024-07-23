@@ -1,10 +1,6 @@
 //// learner
 //// Tensor using list and recursive data structure implementation
 
-import birl
-import birl/duration
-import parallel_map
-
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/erlang.{type Reference}
@@ -17,8 +13,13 @@ import gleam/pair
 import gleam/result
 import gleam/set
 import gleam/string
+
+import birl
+import birl/duration
 import gleam_community/maths/elementary.{exponential, natural_logarithm}
 import mat
+import parallel_map
+
 import random_distribution.{random_normal}
 
 //----------------------------
@@ -42,29 +43,29 @@ pub fn tensor_id() {
 
 /// Tensors are implemented as nested lists and all scalars are duals.
 /// scalar? - Tensors of rank 0
-pub type Scalar {
-  Scalar(id: Reference, real: Float, link: Link)
+pub type Dual {
+  Dual(id: Reference, scalar: Float, link: Link)
 }
 
-pub fn new_scalar(v: Float) -> Scalar {
-  Scalar(tensor_id(), v, end_of_chain)
+pub fn from_float(v: Float) -> Dual {
+  Dual(tensor_id(), v, end_of_chain)
 }
 
 pub fn new_dual(v: Float, link: Link) {
-  Scalar(tensor_id(), v, link)
+  Dual(tensor_id(), v, link)
 }
 
-pub fn from_scalar(s: Scalar) {
-  Scalar(s.id, s.real, end_of_chain)
+pub fn from_dual(d: Dual) {
+  Dual(d.id, d.scalar, end_of_chain)
 }
 
-pub fn get_real(s: Scalar) {
-  s.real
+pub fn get_scalar(d: Dual) {
+  d.scalar
 }
 
 /// tensor? - Tensors of rank 0 or higher
 pub type Tensor {
-  ScalarTensor(Scalar)
+  DualTensor(Dual)
   ListTensor(List(Tensor))
 }
 
@@ -76,14 +77,14 @@ pub type Shape =
 
 // gradient-state? - A hashtable from dual? to tensor?
 pub type GradientState =
-  Dict(Scalar, Float)
+  Dict(Dual, Float)
 
 // link? - Links included in a dual. Defined as the type
 // (-> dual? tensor? gradient-state? gradient-state?)
 pub type Link =
-  fn(Scalar, Float, GradientState) -> GradientState
+  fn(Dual, Float, GradientState) -> GradientState
 
-pub fn end_of_chain(d: Scalar, z: Float, sigma: GradientState) {
+pub fn end_of_chain(d: Dual, z: Float, sigma: GradientState) {
   let g = dict.get(sigma, d) |> result.unwrap(0.0)
   dict.insert(sigma, d, z +. g)
 }
@@ -115,11 +116,11 @@ pub fn tensor(lst: Dynamic) -> Tensor {
   case dynamic.classify(lst) {
     "Int" -> {
       use x <- result.map(lst |> dynamic.int)
-      x |> int.to_float |> new_scalar |> ScalarTensor
+      x |> int.to_float |> from_float |> DualTensor
     }
     "Float" -> {
       use x <- result.map(lst |> dynamic.float)
-      x |> new_scalar |> ScalarTensor
+      x |> from_float |> DualTensor
     }
     "List" -> {
       use elements <- result.try(lst |> dynamic.list(dynamic.dynamic))
@@ -145,7 +146,7 @@ pub fn tensor(lst: Dynamic) -> Tensor {
 
 pub fn shape(t: Tensor) -> Shape {
   case t {
-    ScalarTensor(_) -> []
+    DualTensor(_) -> []
     ListTensor([head, ..]) -> {
       [tlen(t), ..shape(head)]
     }
@@ -318,50 +319,50 @@ pub fn desc_u(g, t: Tensor, u: Tensor) {
 // Primitives in learner and nested-tensors
 //
 pub fn get_float(t: Tensor) {
-  let assert ScalarTensor(s) = t
-  s.real
+  let assert DualTensor(d) = t
+  d.scalar
 }
 
-pub fn get_scalar(t: Tensor) {
-  let assert ScalarTensor(s) = t
-  s
+pub fn get_dual(t: Tensor) {
+  let assert DualTensor(d) = t
+  d
 }
 
 pub fn to_tensor(v: Float) {
-  new_scalar(v) |> ScalarTensor
+  from_float(v) |> DualTensor
 }
 
 /// Constructs a differentiable function (known as a primitive) of one tensor
 /// argument that invokes ρ-fn to compute the result of the application of the
 /// primitive, and uses ∇-fn to find the gradient of the result with respect to the
 /// argument provided to the primitive.
-pub fn prim1(real_fn, gradient_fn) -> TensorUnaryOp {
+pub fn prim1(numeric_fn, gradient_fn) -> TensorUnaryOp {
   fn(t: Tensor) {
     new_dual(
-      // real
-      { real_fn |> lift_float1 |> lift_scalar1 }(t) |> get_float,
+      // scalar
+      { numeric_fn |> lift_float1 |> lift_dual1 }(t) |> get_float,
       // link
       fn(_d, z, sigma) {
-        let s1 = get_scalar(t)
+        let s1 = get_dual(t)
         let ga = gradient_fn(t |> get_float, z)
 
         sigma
         |> s1.link(s1, ga, _)
       },
     )
-    |> ScalarTensor
+    |> DualTensor
   }
 }
 
-pub fn prim2(real_fn, gradient_fn) -> TensorBinaryOp {
+pub fn prim2(numeric_fn, gradient_fn) -> TensorBinaryOp {
   fn(t: Tensor, u: Tensor) {
     new_dual(
-      // real
-      { real_fn |> lift_float2 |> lift_scalar2 }(t, u) |> get_float,
+      // scalar
+      { numeric_fn |> lift_float2 |> lift_dual2 }(t, u) |> get_float,
       // link
       fn(_d, z, sigma) {
-        let s1 = get_scalar(t)
-        let s2 = get_scalar(u)
+        let s1 = get_dual(t)
+        let s2 = get_dual(u)
         let assert [ga, gb] = gradient_fn(t |> get_float, u |> get_float, z)
 
         sigma
@@ -369,33 +370,33 @@ pub fn prim2(real_fn, gradient_fn) -> TensorBinaryOp {
         |> s2.link(s2, gb, _)
       },
     )
-    |> ScalarTensor
+    |> DualTensor
   }
 }
 
-fn lift_float1(f: fn(Float) -> Float) -> fn(Scalar) -> Scalar {
-  fn(x) { x |> get_real |> f |> new_scalar }
+fn lift_float1(f: fn(Float) -> Float) -> fn(Dual) -> Dual {
+  fn(x) { x |> get_scalar |> f |> from_float }
 }
 
-fn lift_float2(f: fn(Float, Float) -> Float) -> fn(Scalar, Scalar) -> Scalar {
+fn lift_float2(f: fn(Float, Float) -> Float) -> fn(Dual, Dual) -> Dual {
   fn(x, y) {
-    f(x |> get_real, y |> get_real)
-    |> new_scalar
+    f(x |> get_scalar, y |> get_scalar)
+    |> from_float
   }
 }
 
-fn lift_scalar1(f: fn(Scalar) -> Scalar) -> TensorUnaryOp {
+fn lift_dual1(f: fn(Dual) -> Dual) -> TensorUnaryOp {
   fn(t: Tensor) {
-    let assert ScalarTensor(a) = t
-    f(a) |> ScalarTensor
+    let assert DualTensor(a) = t
+    f(a) |> DualTensor
   }
 }
 
-fn lift_scalar2(f: fn(Scalar, Scalar) -> Scalar) -> TensorBinaryOp {
+fn lift_dual2(f: fn(Dual, Dual) -> Dual) -> TensorBinaryOp {
   fn(ta: Tensor, tb: Tensor) {
-    let assert ScalarTensor(a) = ta
-    let assert ScalarTensor(b) = tb
-    f(a, b) |> ScalarTensor
+    let assert DualTensor(a) = ta
+    let assert DualTensor(b) = tb
+    f(a, b) |> DualTensor
   }
 }
 
@@ -403,7 +404,7 @@ fn lift_scalar2(f: fn(Scalar, Scalar) -> Scalar) -> TensorBinaryOp {
 // Automaic Differentiation
 //----------------------------
 pub fn gradient_of(f: fn(Theta) -> Tensor, theta: Theta) -> Theta {
-  let wrt = map_tensor_recursively(from_scalar, theta |> ListTensor)
+  let wrt = map_tensor_recursively(from_dual, theta |> ListTensor)
   let assert ListTensor(wrt_lst) = wrt
 
   let assert ListTensor(lst) = gradient_once(f(wrt_lst), wrt_lst)
@@ -413,14 +414,14 @@ pub fn gradient_of(f: fn(Theta) -> Tensor, theta: Theta) -> Theta {
 pub fn gradient_once(y, wrt) {
   let sigma = gradient_sigma(y, dict.new())
   map_tensor_recursively(
-    fn(s) { sigma |> dict.get(s) |> result.unwrap(0.0) |> new_scalar },
+    fn(d) { sigma |> dict.get(d) |> result.unwrap(0.0) |> from_float },
     wrt |> ListTensor,
   )
 }
 
-pub fn map_tensor_recursively(f: fn(Scalar) -> Scalar, y: Tensor) -> Tensor {
+pub fn map_tensor_recursively(f: fn(Dual) -> Dual, y: Tensor) -> Tensor {
   case y {
-    ScalarTensor(s) -> f(s) |> ScalarTensor
+    DualTensor(d) -> f(d) |> DualTensor
     ListTensor(lst) ->
       lst |> list.map(map_tensor_recursively(f, _)) |> ListTensor
   }
@@ -428,7 +429,7 @@ pub fn map_tensor_recursively(f: fn(Scalar) -> Scalar, y: Tensor) -> Tensor {
 
 fn gradient_sigma(y, sigma) {
   case y {
-    ScalarTensor(s) -> s.link(s, 1.0, sigma)
+    DualTensor(d) -> d.link(d, 1.0, sigma)
     ListTensor(lst) -> gradient_sigma_list(lst, sigma)
   }
 }
@@ -614,24 +615,24 @@ pub fn tensor_multiply_2_1(t0, t1) {
 //------------------------------------
 // Bool Comparasion functions
 //------------------------------------
-pub fn greater_0_0(a: Scalar, b: Scalar) -> Bool {
-  get_real(a) >=. get_real(b)
+pub fn greater_0_0(a: Dual, b: Dual) -> Bool {
+  get_scalar(a) >=. get_scalar(b)
 }
 
 pub fn less_0_0(a, b) {
-  get_real(a) <=. get_real(b)
+  get_scalar(a) <=. get_scalar(b)
 }
 
 pub fn equal_0_0(a, b) {
-  get_real(a) == get_real(b)
+  get_scalar(a) == get_scalar(b)
 }
 
-fn lift_scalar_comparator(
-  comparator: fn(Scalar, Scalar) -> Bool,
+fn lift_dual_comparator(
+  comparator: fn(Dual, Dual) -> Bool,
 ) -> fn(Tensor, Tensor) -> Bool {
   fn(t: Tensor, u: Tensor) {
     case t, u {
-      ScalarTensor(s_t), ScalarTensor(s_u) -> comparator(s_t, s_u)
+      DualTensor(d_t), DualTensor(d_u) -> comparator(d_t, d_u)
       _, _ -> panic
     }
   }
@@ -641,13 +642,13 @@ fn lift_scalar_comparator(
 // Bool Comparasion functions
 //------------------------------------
 fn tensorized_comparators(comparator) {
-  fn(a: Scalar, b: Scalar) {
+  fn(a: Dual, b: Dual) {
     case comparator(a, b) {
-      True -> new_scalar(1.0)
-      False -> new_scalar(0.0)
+      True -> from_float(1.0)
+      False -> from_float(0.0)
     }
   }
-  |> lift_scalar2
+  |> lift_dual2
   |> ext2(0, 0)
 }
 
@@ -670,15 +671,15 @@ pub fn argmax_1(t) {
   let assert ListTensor([head, ..] as lst) = t
   lst
   |> list.index_fold(#(head, 0), fn(acc, item, index) {
-    case { greater_0_0 |> lift_scalar_comparator }(item, acc.0) {
+    case { greater_0_0 |> lift_dual_comparator }(item, acc.0) {
       True -> #(item, index)
       _ -> acc
     }
   })
   |> pair.second
   |> int.to_float
-  |> new_scalar
-  |> ScalarTensor
+  |> from_float
+  |> DualTensor
 }
 
 pub fn tensor_argmax(t) {
@@ -693,7 +694,7 @@ pub fn max_1(t) {
   let assert ListTensor([head, ..] as lst) = t
   lst
   |> list.fold(head, fn(acc, item) {
-    case { greater_0_0 |> lift_scalar_comparator }(item, acc) {
+    case { greater_0_0 |> lift_dual_comparator }(item, acc) {
       True -> item
       _ -> acc
     }
@@ -729,7 +730,7 @@ pub fn dotted_product(t, u, acc) {
   }
 }
 
-pub fn sum_dp(filter: Tensor, signal: Tensor, from: Int, acc: Float) -> Scalar {
+pub fn sum_dp(filter: Tensor, signal: Tensor, from: Int, acc: Float) -> Dual {
   let assert ListTensor(filter_lst) = filter
   let assert ListTensor(signal_lst) = signal
 
@@ -762,14 +763,14 @@ pub fn sum_dp(filter: Tensor, signal: Tensor, from: Int, acc: Float) -> Scalar {
     }
   }
 
-  sum_dp_helper(filter_lst, signal_lst |> slide_window, acc |> new_scalar)
+  sum_dp_helper(filter_lst, signal_lst |> slide_window, acc |> from_float)
 }
 
 fn sum_dp_helper(
   filter_lst: List(Tensor),
   signal_lst: List(Tensor),
-  acc: Scalar,
-) -> Scalar {
+  acc: Dual,
+) -> Dual {
   case filter_lst, signal_lst {
     [], _ | _, [] -> acc
     [f_head, ..f_tail], [s_head, ..s_tail] ->
@@ -777,8 +778,8 @@ fn sum_dp_helper(
         f_tail,
         s_tail,
         dot_product(f_head, s_head)
-          |> add_0_0()(acc |> ScalarTensor)
-          |> get_scalar,
+          |> add_0_0()(acc |> DualTensor)
+          |> get_dual,
       )
   }
 }
@@ -795,7 +796,7 @@ pub fn correlate_3_2(bank, signal) {
     let assert [signal_item, bank_item] = items
     let segment = signal_item.0
     let filter = bank_item.1
-    correlation_overlap(filter, signal, segment) |> ScalarTensor
+    correlation_overlap(filter, signal, segment) |> DualTensor
   })
 }
 
@@ -883,14 +884,14 @@ pub fn gradient_descent(hp: Hyperparameters) {
 //------------------------------------
 fn lift_numerical_tensor_op(op) {
   fn(t) {
-    let f = op |> lift_float1 |> lift_scalar1 |> ext1(0)
+    let f = op |> lift_float1 |> lift_dual1 |> ext1(0)
     f(t)
   }
 }
 
 fn lift_numerical_tensor_op2(op) {
   fn(t, u) {
-    let f = op |> lift_float2 |> lift_scalar2 |> ext2(0, 0)
+    let f = op |> lift_float2 |> lift_dual2 |> ext2(0, 0)
     f(t, u)
   }
 }
@@ -1108,15 +1109,15 @@ pub fn sampling_obj(batch_size: Int) {
 //------------------------------------
 // rectify
 //------------------------------------
-pub fn rectify_0(x: Scalar) {
-  case less_0_0(x, new_scalar(0.0)) {
-    True -> new_scalar(0.0)
+pub fn rectify_0(x: Dual) {
+  case less_0_0(x, from_float(0.0)) {
+    True -> from_float(0.0)
     _ -> x
   }
 }
 
 pub fn rectify(t: Tensor) {
-  let f = rectify_0 |> lift_scalar1 |> ext1(0)
+  let f = rectify_0 |> lift_dual1 |> ext1(0)
   f(t)
 }
 
@@ -1344,7 +1345,7 @@ pub fn grid_search(
 
 // fn tensor_to_list(t: Tensor) {
 //   case t {
-//     ScalarTensor(s) -> s.real |> dynamic.from
+//     DualTensor(d) -> d.scalar |> dynamic.from
 //     ListTensor([]) -> dynamic.from([])
 //     ListTensor(lst) -> lst |> list.map(tensor_to_list) |> dynamic.from
 //   }

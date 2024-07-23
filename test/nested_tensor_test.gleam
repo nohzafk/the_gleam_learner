@@ -10,15 +10,15 @@ import gleam/string
 import gleam_community/maths/combinatorics
 import gleeunit/should
 import nested_tensor.{
-  type Scalar, type Tensor, type Theta, Block, ListTensor, Scalar, ScalarTensor,
+  type Dual, type Tensor, type Theta, Block, Dual, DualTensor, ListTensor,
   accuracy, adam_gradient_descent, add_0_0, build_tensor,
   build_tensor_from_tensors, cartesian_product, compose_block_fns, corr,
   correlation_overlap, desc_t, desc_u, dot_product, dotted_product, ext1, ext2,
-  get_float, get_real, get_scalar, gradient_descent, gradient_of, gradient_once,
-  hp_new, hp_new_batch_size, hp_new_beta, hp_new_mu, init_shape, k_recu, l2_loss,
-  make_theta, map_tensor, map_tensor_recursively, multiply_0_0,
-  naked_gradient_descent, new_scalar, plane, rank, rectify, rectify_0, recu,
-  relu, rms_gradient_descent, samples, sampling_obj, shape, smooth, stack2,
+  from_float, get_dual, get_float, get_scalar, gradient_descent, gradient_of,
+  gradient_once, hp_new, hp_new_batch_size, hp_new_beta, hp_new_mu, init_shape,
+  k_recu, l2_loss, make_theta, map_tensor, map_tensor_recursively, multiply_0_0,
+  naked_gradient_descent, plane, rank, rectify, rectify_0, recu, relu,
+  rms_gradient_descent, samples, sampling_obj, shape, smooth, stack2,
   stack_blocks, sum_dp, tensor, tensor_abs, tensor_add, tensor_argmax,
   tensor_correlate, tensor_divide, tensor_dot_product, tensor_dot_product_2_1,
   tensor_exp, tensor_log, tensor_max, tensor_minus, tensor_multiply,
@@ -29,7 +29,7 @@ import nested_tensor.{
 
 pub fn tensor_to_list(tensor: Tensor) -> Dynamic {
   case tensor {
-    ScalarTensor(scalar) -> dynamic.from(scalar.real)
+    DualTensor(scalar) -> dynamic.from(scalar.scalar)
     ListTensor(tensors) ->
       case tensors {
         [] -> dynamic.from([])
@@ -43,7 +43,7 @@ pub fn tensor_to_list(tensor: Tensor) -> Dynamic {
 
 pub fn is_tensor_equal(ta: Tensor, tb: Tensor) -> Bool {
   case ta, tb {
-    ScalarTensor(Scalar(real: a, ..)), ScalarTensor(Scalar(real: b, ..)) ->
+    DualTensor(Dual(scalar: a, ..)), DualTensor(Dual(scalar: b, ..)) ->
       float.loosely_equals(a, b, tolerace)
     ListTensor(a), ListTensor(b) ->
       case tlen(ta) == tlen(tb) {
@@ -72,14 +72,14 @@ pub fn tlen_test() {
 }
 
 pub fn dual_as_key_test() {
-  let d1 = new_scalar(0.1)
+  let d1 = from_float(0.1)
   let v1 = 1.0
   let sigma = dict.new() |> dict.insert(d1, v1)
 
   sigma |> dict.size() |> should.equal(1)
   sigma |> dict.get(d1) |> result.unwrap(0.0) |> should.equal(v1)
 
-  let d2 = new_scalar(0.1)
+  let d2 = from_float(0.1)
   let v2 = 2.0
   let sigma2 = sigma |> dict.insert(d2, v2)
 
@@ -125,8 +125,8 @@ pub fn build_tensor_from_tensors_test() {
   build_tensor_from_tensors([tensor([1, 2, 3] |> dynamic.from)], fn(items) {
     let assert [item] = items
     let index = item.0
-    let assert ScalarTensor(s) = item.1
-    { int.to_float(index) +. s.real } |> new_scalar |> ScalarTensor
+    let assert DualTensor(s) = item.1
+    { int.to_float(index) +. s.scalar } |> from_float |> DualTensor
   })
   |> tensor_to_list
   |> should.equal([1.0, 3.0, 5.0] |> dynamic.from)
@@ -150,13 +150,13 @@ pub fn extend_opeartion_test() {
   let r1_td = [3.0, 4.0, 5.0] |> dynamic.from |> tensor
   let r2_td = [[3.0, 4.0, 5.0], [7.0, 8.0, 9.0]] |> dynamic.from |> tensor
 
-  let assert ScalarTensor(s0) = r0_td
-  s0.real |> should.equal(3.0)
+  let assert DualTensor(s0) = r0_td
+  s0.scalar |> should.equal(3.0)
 
   r1_td
   |> map_tensor(fn(x) {
-    let assert ScalarTensor(v) = x
-    ScalarTensor(new_scalar(v.real +. 1.0))
+    let assert DualTensor(v) = x
+    DualTensor(from_float(v.scalar +. 1.0))
   })
   |> tensor_should_equal([4.0, 5.0, 6.0] |> dynamic.from |> tensor)
 
@@ -179,9 +179,9 @@ pub fn desc_test() {
   let u = [4.0, 5.0, 6.0, 7.0] |> dynamic.from |> tensor
   let add_0_0 =
     fn(ta, tb) {
-      let assert ScalarTensor(a) = ta
-      let assert ScalarTensor(b) = tb
-      { a.real +. b.real } |> new_scalar |> ScalarTensor
+      let assert DualTensor(a) = ta
+      let assert DualTensor(b) = tb
+      { a.scalar +. b.scalar } |> from_float |> DualTensor
     }
     |> ext2(0, 0)
 
@@ -211,9 +211,9 @@ pub fn desc_test() {
 
   let sqr_0 =
     fn(t) {
-      let assert ScalarTensor(a) = t
-      let assert Ok(r) = float.power(a.real, 2.0)
-      r |> new_scalar |> ScalarTensor
+      let assert DualTensor(a) = t
+      let assert Ok(r) = float.power(a.scalar, 2.0)
+      r |> from_float |> DualTensor
     }
     |> ext1(0)
 
@@ -225,20 +225,20 @@ pub fn desc_test() {
 pub fn map_tensor_recursively_test() {
   let t = tensor([0.0, 1.0, 2.0, 3.0] |> dynamic.from)
 
-  fn(s: Scalar) { Scalar(s.id, s.real +. 1.0, s.link) }
+  fn(s: Dual) { Dual(s.id, s.scalar +. 1.0, s.link) }
   |> map_tensor_recursively(t)
   |> tensor_to_list
   |> should.equal([1.0, 2.0, 3.0, 4.0] |> dynamic.from)
 }
 
 pub fn auto_diff_test() {
-  let s0 = new_scalar(0.0)
-  let s1 = new_scalar(1.0)
+  let s0 = from_float(0.0)
+  let s1 = from_float(1.0)
 
-  s0.real |> should.equal(0.0)
+  s0.scalar |> should.equal(0.0)
 
-  let t0 = ScalarTensor(s0)
-  let t1 = ScalarTensor(s1)
+  let t0 = DualTensor(s0)
+  let t1 = DualTensor(s1)
 
   gradient_once(t1, [t0, t1])
   |> tensor_to_list
@@ -527,10 +527,10 @@ pub fn correlate_test() {
   let bank0 = [[1, 2], [3, 4], [5, 6]] |> dynamic.from |> tensor
   let bank1 = [[7, 8], [9, 10], [11, 12]] |> dynamic.from |> tensor
 
-  sum_dp(bank0, signal, -1, 0.0) |> get_real |> should.equal(50.0)
-  sum_dp(bank1, signal, -1, 0.0) |> get_real |> should.equal(110.0)
+  sum_dp(bank0, signal, -1, 0.0) |> get_scalar |> should.equal(50.0)
+  sum_dp(bank1, signal, -1, 0.0) |> get_scalar |> should.equal(110.0)
 
-  correlation_overlap(bank0, signal, 0) |> get_real |> should.equal(50.0)
+  correlation_overlap(bank0, signal, 0) |> get_scalar |> should.equal(50.0)
 
   tensor_correlate(filter_bank, signal)
   |> tensor_should_equal(
@@ -587,8 +587,8 @@ pub fn correlate_test() {
 
 pub fn lower_to_float1(f: fn(Tensor) -> Tensor) -> fn(Float) -> Float {
   fn(v) {
-    let assert ScalarTensor(s) = v |> to_tensor |> f
-    s.real
+    let assert DualTensor(s) = v |> to_tensor |> f
+    s.scalar
   }
 }
 
@@ -596,8 +596,8 @@ pub fn lower_to_float2(
   f: fn(Tensor, Tensor) -> Tensor,
 ) -> fn(Float, Float) -> Float {
   fn(a, b) {
-    let assert ScalarTensor(s) = f(a |> to_tensor, b |> to_tensor)
-    s.real
+    let assert DualTensor(s) = f(a |> to_tensor, b |> to_tensor)
+    s.scalar
   }
 }
 
@@ -834,32 +834,32 @@ pub fn j_stochastic_test() {
 }
 
 pub fn recify_test() {
-  rectify_0(new_scalar(3.0)) |> get_real |> should.equal(3.0)
-  rectify_0(new_scalar(-3.0)) |> get_real |> should.equal(0.0)
+  rectify_0(from_float(3.0)) |> get_scalar |> should.equal(3.0)
+  rectify_0(from_float(-3.0)) |> get_scalar |> should.equal(0.0)
 
   let lower_tensor_op = fn(f: fn(Tensor, Tensor) -> Tensor) -> fn(Float, Float) ->
-    Scalar {
-    fn(a: Float, b: Float) { f(a |> to_tensor, b |> to_tensor) |> get_scalar }
+    Dual {
+    fn(a: Float, b: Float) { f(a |> to_tensor, b |> to_tensor) |> get_dual }
   }
 
   { add_0_0() |> lower_tensor_op }(0.0, -3.0)
   |> rectify_0
-  |> get_real
+  |> get_scalar
   |> should.equal(0.0)
 
   { multiply_0_0() |> lower_tensor_op }(1.0, -3.0)
   |> rectify_0
-  |> get_real
+  |> get_scalar
   |> should.equal(0.0)
 
   { add_0_0() |> lower_tensor_op }(0.0, 3.0)
   |> rectify_0
-  |> get_real
+  |> get_scalar
   |> should.equal(3.0)
 
   { multiply_0_0() |> lower_tensor_op }(1.0, 3.0)
   |> rectify_0
-  |> get_real
+  |> get_scalar
   |> should.equal(3.0)
 
   rectify([1.0, 2.3, -1.1] |> dynamic.from |> tensor)
