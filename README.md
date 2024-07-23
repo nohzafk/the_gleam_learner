@@ -6,15 +6,15 @@ This is [The Little Lerner](https://www.thelittlelearner.com/#TheCode) port from
 
 using list and recursive data strcture
 
-- src/malt0.gleam
-- test/malt0_test.gleam
+- src/nested_tensor.gleam
+- test/nested_tensor_test.gleam
 
 ## Flat binary tensor implementation (WIP)
 
 using bit array as tensor
 
-- src/malt1.gleam
-- test/malt1_test.gleam
+- src/flat_tensor.gleam
+- test/flat_tensor_test.gleam
 
 ## Run the test
 ```sh
