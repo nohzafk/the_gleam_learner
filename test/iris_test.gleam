@@ -1,6 +1,6 @@
 import gleam/io
 import iris
-import malt0
+import nested_tensor
 import qcheck_gleeunit_utils/test_spec
 // only takes 10 seconds to run all the grid_search on M3 Max
 // pub fn grid_search_test_() {

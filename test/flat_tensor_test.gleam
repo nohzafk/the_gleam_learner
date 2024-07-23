@@ -1,12 +1,4 @@
-import gleam/bit_array
-import gleam/bool
-import gleam/dynamic.{type Dynamic}
-import gleam/float
-import gleam/int
-import gleam/list
-import gleam_community/maths/elementary.{exponential, natural_logarithm}
-import gleeunit/should
-import malt1.{
+import flat_tensor.{
   type Differentiable, type Dual, type Shape, type Tensor, Dual, DualDiff,
   ListDiff, add_numeric, bitarray_to_floats, build_store, build_tensor, d_add,
   d_divide, d_exp, d_expt, d_log, d_multiply, d_sqr, d_sqrt, d_subtract,
@@ -17,6 +9,14 @@ import malt1.{
   tensor_equal, tlen, to_bitarray, to_diff, to_dual, to_tensor, tref, trefs,
   unwrap_ok_number, unwrap_ok_number2,
 }
+import gleam/bit_array
+import gleam/bool
+import gleam/dynamic.{type Dynamic}
+import gleam/float
+import gleam/int
+import gleam/list
+import gleam_community/maths/elementary.{exponential, natural_logarithm}
+import gleeunit/should
 
 pub fn scalar1_shape(_) {
   []

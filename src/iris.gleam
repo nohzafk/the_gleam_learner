@@ -3,7 +3,7 @@ import gleam/io
 import gleam/list
 import gleam/string
 import iris_data
-import malt0.{
+import nested_tensor.{
   type Block, type Hyperparameters, Block, accuracy, grid_search, init_theta,
   l2_loss, model, relu, sampling_obj, stack_blocks, tensor,
 }

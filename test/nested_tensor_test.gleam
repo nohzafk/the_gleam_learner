@@ -9,13 +9,13 @@ import gleam/result
 import gleam/string
 import gleam_community/maths/combinatorics
 import gleeunit/should
-import malt0.{
+import nested_tensor.{
   type Scalar, type Tensor, type Theta, Block, ListTensor, Scalar, ScalarTensor,
   accuracy, adam_gradient_descent, add_0_0, build_tensor,
-  build_tensor_from_tensors, compose_block_fns, corr, correlation_overlap,
-  desc_t, desc_u, dot_product, dotted_product, ext1, ext2, get_float, get_real,
-  get_scalar, gradient_descent, gradient_of, gradient_once, hp_new,
-  hp_new_batch_size, hp_new_beta, hp_new_mu, init_shape, k_recu, l2_loss,
+  build_tensor_from_tensors, cartesian_product, compose_block_fns, corr,
+  correlation_overlap, desc_t, desc_u, dot_product, dotted_product, ext1, ext2,
+  get_float, get_real, get_scalar, gradient_descent, gradient_of, gradient_once,
+  hp_new, hp_new_batch_size, hp_new_beta, hp_new_mu, init_shape, k_recu, l2_loss,
   make_theta, map_tensor, map_tensor_recursively, multiply_0_0,
   naked_gradient_descent, new_scalar, plane, rank, rectify, rectify_0, recu,
   relu, rms_gradient_descent, samples, sampling_obj, shape, smooth, stack2,
@@ -1125,7 +1125,7 @@ pub fn cartesian_product_test() {
     }),
   )
 
-  malt0.cartesian_product([list1, list2, list3])
+  cartesian_product([list1, list2, list3])
   |> should.equal(
     [
       #(500, 0.0001, 4),
@@ -1145,7 +1145,7 @@ pub fn cartesian_product_test() {
 
   // The result will be a list of lists, each containing one element from each input list
   let r =
-    malt0.cartesian_product([
+    cartesian_product([
       [500, 1000] |> list.map(dynamic.from),
       [0.0001, 0.0002] |> list.map(dynamic.from),
       [4, 8] |> list.map(dynamic.from),
