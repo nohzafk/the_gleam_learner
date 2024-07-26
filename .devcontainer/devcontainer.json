@@ -1,0 +1,14 @@
+{
+	"name": "Ubuntu",
+	"image": "mcr.microsoft.com/devcontainers/base:jammy",
+	"features": {
+		"ghcr.io/devcontainers/features/git:1": {},
+		"ghcr.io/nohzafk/devcontainer-feature-emacs-lsp-bridge/gleam:latest": {},
+		"ghcr.io/devcontainers/features/nix:1": {
+			"packages": "ripgrep"
+		}
+	},
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"forwardPorts": [9997, 9998, 9999],
+	"remoteUser": "vscode"
+}
