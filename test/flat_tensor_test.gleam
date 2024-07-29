@@ -2,8 +2,9 @@ import flat_tensor.{
   type Differentiable, type Dual, type Shape, type Tensor, Dual, DualDiff,
   ListDiff, add_numeric, bitarray_to_floats, build_store, build_tensor, d_add,
   d_divide, d_exp, d_expt, d_log, d_multiply, d_sqr, d_sqrt, d_subtract,
-  equal_elements, ext1_gradient, ext1_numeric, ext2_gradient, ext2_numeric,
-  ext2_shapes, float_bits_walker, float_to_tensor, floats_to_tensor, gradient_of,
+  equal_elements, extend_rank1_gradient, extend_rank1_numeric,
+  extend_rank2_gradient, extend_rank2_numeric, extend_rank2_shapes,
+  float_bits_walker, float_to_tensor, floats_to_tensor, gradient_of,
   gradient_once, idxs, lower_float2, lower_float3, map_tensor_recursively,
   merge_shapes, min_shape, new_flat, rank, reshape, shape, size_of, store,
   tensor_equal, tlen, to_bitarray, to_diff, to_dual, to_tensor, tref, trefs,
@@ -157,7 +158,7 @@ pub fn tensor_operations_test() {
   )
 }
 
-pub fn extend_ops_ext1_numeric_test() {
+pub fn extend_ops_extend_rank1_numeric_test() {
   min_shape(2, [3, 4, 5, 6]) |> should.equal([5, 6])
   min_shape(0, [3, 4, 5, 6]) |> should.equal([])
 
@@ -174,7 +175,7 @@ pub fn extend_ops_ext1_numeric_test() {
 
     let sum_shape_f = fn(_in_f_shape: Shape) -> Shape { [] }
 
-    t |> ext1_numeric(sum_f, 1, sum_shape_f)
+    t |> extend_rank1_numeric(sum_f, 1, sum_shape_f)
   }
   let sum_t = sum(t0)
   sum_t.store
@@ -193,7 +194,7 @@ pub fn extend_ops_ext1_numeric_test() {
       }
     }
 
-    t |> ext1_numeric(dup_f, 1, dup_shape_f)
+    t |> extend_rank1_numeric(dup_f, 1, dup_shape_f)
   }
 
   let dup_t = dup(t0)
@@ -209,13 +210,13 @@ pub fn extend_ops_ext1_numeric_test() {
   )
 }
 
-pub fn extend_ops_ext2_shapes_test() {
+pub fn extend_ops_extend_rank2_shapes_test() {
   let s0 = [3, 4, 5, 6]
   let s1 = [3, 7, 6]
   let r0 = 2
   let r1 = 1
 
-  ext2_shapes(
+  extend_rank2_shapes(
     s0,
     s1,
     r0,
@@ -256,9 +257,9 @@ pub fn extend_ops_ext2_shapes_test() {
   )
 }
 
-pub fn extend_ops_ext2_numeric_test() {
+pub fn extend_ops_extend_rank2_numeric_test() {
   let multiply_numeric =
-    float.multiply |> lower_float2 |> ext2_numeric(0, 0, scalar2_shape)
+    float.multiply |> lower_float2 |> extend_rank2_numeric(0, 0, scalar2_shape)
 
   let t0 =
     new_flat([2, 3, 4], build_store(24, fn(i) { { 2 * i } |> int.to_float }), 0)
@@ -274,7 +275,7 @@ pub fn extend_ops_ext2_numeric_test() {
   )
 }
 
-pub fn extend_ops_ext2_multiply_2_1_test() {
+pub fn extend_ops_extend_rank2_multiply_2_1_test() {
   let t1 =
     new_flat([5, 6], build_store(30, fn(i) { 2.0 *. int.to_float(i) }), 0)
   let t2 = new_flat([6], build_store(6, fn(i) { 3.0 *. int.to_float(i) }), 0)
@@ -311,9 +312,9 @@ pub fn extend_ops_ext2_multiply_2_1_test() {
     })
     |> bit_array.concat
   }
-  // The mul_2_1 function then uses this mul_2_1_f with ext2_numeric,
+  // The mul_2_1 function then uses this mul_2_1_f with extend_rank2_numeric,
   // specifying the minimum ranks (2 and 1) and the output shape function.
-  let mul_2_1 = mul_2_1_f |> ext2_numeric(2, 1, fn(s0, _s1) { s0 })
+  let mul_2_1 = mul_2_1_f |> extend_rank2_numeric(2, 1, fn(s0, _s1) { s0 })
 
   let r_1_2 = mul_2_1(t1, t2)
   r_1_2.shape |> should.equal([5, 6])
@@ -363,7 +364,7 @@ pub fn extend_ops_ext_gradient_test() {
     let sqr_gradient = fn(a, z) { z *. 2.0 *. a }
 
     let tensor_sqr =
-      sqr_gradient |> lower_float2 |> ext1_gradient(0, scalar1_shape)
+      sqr_gradient |> lower_float2 |> extend_rank1_gradient(0, scalar1_shape)
 
     tensor_sqr(r1_td, r1_td |> one_like)
     |> store
@@ -376,7 +377,7 @@ pub fn extend_ops_ext_gradient_test() {
   }
 
   let add_gradient = fn(_a, _b, z) { #(z, z) }
-  let tensor_add = add_gradient |> ext2_gradient(0, 0, scalar2_shape)
+  let tensor_add = add_gradient |> extend_rank2_gradient(0, 0, scalar2_shape)
   {
     let #(ta, tb) = tensor_add(r1_td, r1_td, r1_td |> one_like)
     ta.shape |> should.equal([3])
@@ -398,7 +399,7 @@ pub fn extend_ops_ext_gradient_test() {
     let multiply_gradient =
       fn(a, b, z) { #(z *. b, z *. a) }
       |> lower_float3
-      |> ext2_gradient(0, 0, scalar2_shape)
+      |> extend_rank2_gradient(0, 0, scalar2_shape)
 
     let #(gt, gu) =
       multiply_gradient(
@@ -415,7 +416,7 @@ pub fn extend_ops_ext_gradient_test() {
       let assert <<z:float>> = vz
       float_bits_walker(fn(acc, _v) { <<acc:bits, z:float>> }, g, <<>>)
     }
-    let sum_gradient = sum_1_gradient |> ext1_gradient(1, scalar1_shape)
+    let sum_gradient = sum_1_gradient |> extend_rank1_gradient(1, scalar1_shape)
 
     sum_gradient([2, 3, 4] |> dynamic.from |> to_tensor, float_to_tensor(1.0))
     |> tensor_should_equal([1, 1, 1] |> dynamic.from |> to_tensor)

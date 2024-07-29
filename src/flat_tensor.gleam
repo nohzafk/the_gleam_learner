@@ -1085,3 +1085,64 @@ pub fn sqrt_numeric(t) {
 pub fn sqr_numeric(t) {
   multiply_numeric(t, t)
 }
+
+//----------------------------
+// Boolean comparators
+//----------------------------
+
+pub fn as_float(t: Tensor) -> Float {
+  let omit_bits = t.offset * 64
+  let assert <<_omit:size(omit_bits), value:float, _:bits>> = t.store
+  value
+}
+
+pub fn lift_float_to_comparator(f) {
+  fn(ta: Tensor, tb: Tensor) { f(ta |> as_float, tb |> as_float) }
+}
+
+pub fn comparator(f) {
+  fn(ta: Tensor, tb: Tensor) -> Bool {
+    { f |> lift_float_to_comparator }(ta, tb)
+  }
+}
+
+pub fn equal_rank_0_0() {
+  fn(x, y) { x == y } |> comparator
+}
+
+pub fn less_rank_0_0() {
+  fn(x, y) { x <. y } |> comparator
+}
+
+pub fn less_equal_rank_0_0() {
+  fn(x, y) { x <=. y } |> comparator
+}
+
+pub fn great_rank_0_0() {
+  fn(x, y) { x >. y } |> comparator
+}
+
+pub fn great_equal_rank_0_0() {
+  fn(x, y) { x >=. y } |> comparator
+}
+
+//----------------------------
+// Tensorized comparators
+//----------------------------
+pub fn comparator_numeric(f: fn(Float, Float) -> Bool) {
+  fn(da: Dual, db: Dual) {
+    case { f |> comparator }(da.tensor, db.tensor) {
+      True -> 1.0
+      _ -> 0.0
+    }
+  }
+}
+
+pub fn comparator_gradient(f: fn(Float, Float) -> Bool) {
+  fn(da: Dual, db: Dual, z: Tensor) {
+    case { f |> comparator }(da.tensor, db.tensor) {
+      True -> #(z, z)
+      _ -> #(float_to_tensor(0.0), float_to_tensor(0.0))
+    }
+  }
+}

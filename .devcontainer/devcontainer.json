@@ -2,8 +2,7 @@
 	"name": "Ubuntu",
 	"image": "mcr.microsoft.com/devcontainers/base:jammy",
 	"features": {
-		"ghcr.io/devcontainers/features/git:1": {},
-		"ghcr.io/nohzafk/devcontainer-feature-emacs-lsp-bridge/gleam:latest": {},
+		"ghcr.io/nohzafk/devcontainer-feature-emacs-lsp-bridge/gleam:0.4.11": {},
 		"ghcr.io/devcontainers/features/nix:1": {
 			"packages": "ripgrep"
 		}
