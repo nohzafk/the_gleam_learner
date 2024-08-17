@@ -863,3 +863,7 @@ pub fn a_scalar_ops_numeric_lists_test() {
       |> tensors_to_differentiable,
   )
 }
+
+pub fn tensorized_comparison_test() {
+  flat_tensor.float_to_tensor(28.0)
+}

@@ -1,13 +1,12 @@
 {
-	"name": "Ubuntu",
-	"image": "mcr.microsoft.com/devcontainers/base:jammy",
+	"name": "Gleam",
+	"image": "ghcr.io/gleam-lang/gleam:v1.4.1-erlang-slim",
 	"features": {
-		"ghcr.io/nohzafk/devcontainer-feature-emacs-lsp-bridge/gleam:0.4.11": {},
+		"ghcr.io/nohzafk/devcontainer-feature-emacs-lsp-bridge/basedpyright:latest": {},
 		"ghcr.io/devcontainers/features/nix:1": {
 			"packages": "ripgrep"
 		}
 	},
-	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	"forwardPorts": [9997, 9998, 9999],
-	"remoteUser": "vscode"
+	"remoteUser": "root"
 }

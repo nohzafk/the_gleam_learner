@@ -1083,7 +1083,10 @@ pub fn sampling_obj(batch_size: Int) {
       let sampled_xs = trefs(xs, sample_indices)
       let sampled_ys = trefs(ys, sample_indices)
 
-      theta |> expectant(sampled_xs, sampled_ys)
+      // SOMEDAY
+      // work on gleam 1.3.2, but not on gleam 1.4.1
+      // theta |> expectant(sampled_xs, sampled_ys)
+      expectant(sampled_xs, sampled_ys)(theta)
     }
   }
 }
@@ -1165,8 +1168,12 @@ pub fn k_relu(k: Int) {
       case k {
         0 -> t
         _ -> {
-          let next_layer = theta |> relu(t) |> k_relu(k - 1)
-          theta |> refr(2) |> next_layer
+          // SOMEDAY
+          // work on gleam 1.3.2, but not on gleam 1.4.1
+          // let next_layer = theta |> relu(t) |> k_relu(k - 1)
+          // theta |> refr(2) |> next_layer
+          let next_layer = k_relu(k - 1)(relu(t)(theta))
+          next_layer(refr(theta, 2))
         }
       }
     }
@@ -1179,8 +1186,12 @@ pub fn k_recu(k: Int) {
       case k {
         0 -> t
         _ -> {
-          let next_layer = theta |> recu(t) |> k_recu(k - 1)
-          theta |> refr(2) |> next_layer
+          // SOMEDAY
+          // work on gleam 1.3.2, but not on gleam 1.4.1
+          // let next_layer = theta |> recu(t) |> k_recu(k - 1)
+          // theta |> refr(2) |> next_layer
+          let next_layer = k_recu(k - 1)(recu(t)(theta))
+          next_layer(refr(theta, 2))
         }
       }
     }
@@ -1190,6 +1201,7 @@ pub fn k_recu(k: Int) {
 //------------------------------------
 // Loss Functions
 //------------------------------------
+
 pub type TargetFn =
   fn(Tensor) -> fn(Theta) -> Tensor
 
@@ -1210,7 +1222,7 @@ pub type Block {
   Block(block_fn: TargetFn, block_shape: List(Shape))
 }
 
-pub fn compose_block_fns(fa, fb, j) {
+pub fn compose_block_fns(fa: TargetFn, fb: TargetFn, j) {
   fn(t: Tensor) {
     fn(theta: Theta) {
       let f = theta |> fa(t) |> fb

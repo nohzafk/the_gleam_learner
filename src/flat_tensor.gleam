@@ -1,4 +1,4 @@
-//// Flat binary tensor implementation
+///// Flat binary tensor implementation
 
 import gleam/bit_array
 import gleam/dict.{type Dict}
@@ -362,16 +362,16 @@ pub fn lower_float3(
 //—————————————————–—————————————————–—————————————————–
 
 // element-wise multiplication with broadcasting
-pub fn ext1_numeric(f, m, shape_fn) {
+pub fn extend_rank1_numeric(f, m, shape_fn) {
   fn(t: Tensor) -> Tensor {
     case t.rank {
       0 -> f(t.store) |> scalarize |> float_to_tensor
-      _ -> flat_ext1_numeric(f, m, shape_fn, t)
+      _ -> flat_extend_rank1_numeric(f, m, shape_fn, t)
     }
   }
 }
 
-pub fn flat_ext1_numeric(
+pub fn flat_extend_rank1_numeric(
   f: fn(BitArray) -> BitArray,
   min_rank: Int,
   shape_fn: fn(Shape) -> Shape,
@@ -397,16 +397,16 @@ pub fn flat_ext1_numeric(
   new_flat(shape: s_out, store: v_out, offset: 0)
 }
 
-pub fn ext1_gradient(f, m, shape_fn) {
+pub fn extend_rank1_gradient(f, m, shape_fn) {
   fn(t: Tensor, z: Tensor) -> Tensor {
     case t.rank {
       0 -> f(t.store, z.store) |> scalarize |> float_to_tensor
-      _ -> flat_ext1_gradient(f, m, shape_fn, t, z)
+      _ -> flat_extend_rank1_gradient(f, m, shape_fn, t, z)
     }
   }
 }
 
-pub fn flat_ext1_gradient(
+pub fn flat_extend_rank1_gradient(
   tensor_store_f: fn(BitArray, BitArray) -> BitArray,
   min_rank: Int,
   shape_fn: fn(Shape) -> Shape,
@@ -438,16 +438,16 @@ pub fn flat_ext1_gradient(
 //—————————————————–—————————————————–—————————————————–
 
 // element-wise multiplication with broadcasting
-pub fn ext2_numeric(f, m: Int, n: Int, shape_fn) {
+pub fn extend_rank2_numeric(f, m: Int, n: Int, shape_fn) {
   fn(t: Tensor, u: Tensor) -> Tensor {
     case t.rank, u.rank {
       0, 0 -> f(t.store, u.store) |> scalarize |> float_to_tensor
-      _, _ -> flat_ext2_numeric(f, m, n, shape_fn, t, u)
+      _, _ -> flat_extend_rank2_numeric(f, m, n, shape_fn, t, u)
     }
   }
 }
 
-pub fn flat_ext2_numeric(
+pub fn flat_extend_rank2_numeric(
   f: fn(BitArray, BitArray) -> BitArray,
   r0: Int,
   r1: Int,
@@ -466,25 +466,40 @@ pub fn flat_ext2_numeric(
   let sf_out = shape_fn(sf0, sf1)
   let stride_out = size_of(sf_out)
 
-  ext2_shapes(s0, s1, r0, r1, sf_out, fn(s_out, size_out, _q0, _q1, strides) {
-    let v_out =
-      list.range(0, size_out / stride_out - 1)
-      |> list.map(fn(out_i) {
-        let #(i0, i1) = idxs(strides, out_i * stride_out, t0.offset, t1.offset)
+  extend_rank2_shapes(
+    s0,
+    s1,
+    r0,
+    r1,
+    sf_out,
+    fn(s_out, size_out, _q0, _q1, strides) {
+      let v_out =
+        list.range(0, size_out / stride_out - 1)
+        |> list.map(fn(out_i) {
+          let #(i0, i1) =
+            idxs(strides, out_i * stride_out, t0.offset, t1.offset)
 
-        let assert Ok(t0_slice) =
-          t0.store |> bit_array.slice(i0 * 8, stride0 * 8)
-        let assert Ok(t1_slice) =
-          t1.store |> bit_array.slice(i1 * 8, stride1 * 8)
-        f(t0_slice, t1_slice)
-      })
-      |> bit_array.concat
+          let assert Ok(t0_slice) =
+            t0.store |> bit_array.slice(i0 * 8, stride0 * 8)
+          let assert Ok(t1_slice) =
+            t1.store |> bit_array.slice(i1 * 8, stride1 * 8)
+          f(t0_slice, t1_slice)
+        })
+        |> bit_array.concat
 
-    new_flat(shape: s_out, store: v_out, offset: 0)
-  })
+      new_flat(shape: s_out, store: v_out, offset: 0)
+    },
+  )
 }
 
-pub fn ext2_shapes(s0: Shape, s1: Shape, r0: Int, r1: Int, sf_out: Shape, k) {
+pub fn extend_rank2_shapes(
+  s0: Shape,
+  s1: Shape,
+  r0: Int,
+  r1: Int,
+  sf_out: Shape,
+  k,
+) {
   let l0 = list.length(s0)
   let l1 = list.length(s1)
   case s0, s1 {
@@ -492,20 +507,28 @@ pub fn ext2_shapes(s0: Shape, s1: Shape, r0: Int, r1: Int, sf_out: Shape, k) {
       k(sf_out, size_of(sf_out), size_of(s0), size_of(s1), [])
 
     _, [s1_head, ..s1_tail] if r0 == l0 ->
-      ext2_shapes(s0, s1_tail, r0, r1, sf_out, desc_right(s1_head, k))
+      extend_rank2_shapes(s0, s1_tail, r0, r1, sf_out, desc_right(s1_head, k))
 
     [s0_head, ..s0_tail], _ if r1 == l1 ->
-      ext2_shapes(s0_tail, s1, r0, r1, sf_out, desc_left(s0_head, k))
+      extend_rank2_shapes(s0_tail, s1, r0, r1, sf_out, desc_left(s0_head, k))
 
     [s0_head, ..s0_tail], [s1_head, ..s1_tail]
       if l0 > 0 && l1 > 0 && s0_head == s1_head
-    -> ext2_shapes(s0_tail, s1_tail, r0, r1, sf_out, desc_both(s0_head, k))
+    ->
+      extend_rank2_shapes(
+        s0_tail,
+        s1_tail,
+        r0,
+        r1,
+        sf_out,
+        desc_both(s0_head, k),
+      )
 
     _, [s1_head, ..s1_tail] if l1 > l0 ->
-      ext2_shapes(s0, s1_tail, r0, r1, sf_out, desc_right(s1_head, k))
+      extend_rank2_shapes(s0, s1_tail, r0, r1, sf_out, desc_right(s1_head, k))
 
     [s0_head, ..s0_tail], _ if l0 > l1 ->
-      ext2_shapes(s0_tail, s1, r0, r1, sf_out, desc_left(s0_head, k))
+      extend_rank2_shapes(s0_tail, s1, r0, r1, sf_out, desc_left(s0_head, k))
     _, _ ->
       panic as mat.format4(
         "Shapes are incompatible for ext2: {}, and {} for min ranks {}, and {}",
@@ -568,7 +591,7 @@ pub fn desc_right(d: Int, k) {
   }
 }
 
-pub fn ext2_gradient(f, m, n, shape_fn) {
+pub fn extend_rank2_gradient(f, m, n, shape_fn) {
   fn(t: Tensor, u: Tensor, z: Tensor) -> #(Tensor, Tensor) {
     case t.rank, u.rank {
       0, 0 ->
@@ -579,12 +602,12 @@ pub fn ext2_gradient(f, m, n, shape_fn) {
             stores.1 |> scalarize |> float_to_tensor,
           )
         }
-      _, _ -> flat_ext2_gradient(f, m, n, shape_fn, t, u, z)
+      _, _ -> flat_extend_rank2_gradient(f, m, n, shape_fn, t, u, z)
     }
   }
 }
 
-pub fn flat_ext2_gradient(
+pub fn flat_extend_rank2_gradient(
   tensor_store_f: fn(BitArray, BitArray, BitArray) -> #(BitArray, BitArray),
   r0,
   r1,
@@ -604,7 +627,7 @@ pub fn flat_ext2_gradient(
   let sf_z = shape_fn(sf0, sf1)
   let stride_z = size_of(sf_z)
 
-  ext2_shapes(s0, s1, r0, r1, sf_z, fn(_sz, size_z, _q0, _q1, strides) {
+  extend_rank2_shapes(s0, s1, r0, r1, sf_z, fn(_sz, size_z, _q0, _q1, strides) {
     let #(final_g0, final_g1) =
       list.range(0, size_z / stride_z - 1)
       |> list.fold(#(new_vec(size_of(s0)), new_vec(size_of(s1))), fn(acc, iz) {
@@ -670,7 +693,8 @@ pub type Link =
 /// Chain rule
 /// non-differentiable add
 pub fn add_numeric(a, b) {
-  let f = float.add |> lower_float2 |> ext2_numeric(0, 0, fn(_, _) { [] })
+  let f =
+    float.add |> lower_float2 |> extend_rank2_numeric(0, 0, fn(_, _) { [] })
   f(a, b)
 }
 
@@ -844,15 +868,33 @@ pub fn prim2_dual(numeric_fn, gradient_fn) {
 /// ext function extend the prim opeartor to apply to tensors of certain shapes
 pub fn ext1(prim_fn: Prim1Fn, n: Int) {
   prim1_dual(
-    ext1_numeric(prim_fn.numeric_fn |> lower_float1, n, prim_fn.shape_fn),
-    ext1_gradient(prim_fn.gradient_fn |> lower_float2, n, prim_fn.shape_fn),
+    extend_rank1_numeric(
+      prim_fn.numeric_fn |> lower_float1,
+      n,
+      prim_fn.shape_fn,
+    ),
+    extend_rank1_gradient(
+      prim_fn.gradient_fn |> lower_float2,
+      n,
+      prim_fn.shape_fn,
+    ),
   )
 }
 
 pub fn ext2(prim_fn: Prim2Fn, m: Int, n: Int) {
   prim2_dual(
-    ext2_numeric(prim_fn.numeric_fn |> lower_float2, m, n, prim_fn.shape_fn),
-    ext2_gradient(prim_fn.gradient_fn |> lower_float3, m, n, prim_fn.shape_fn),
+    extend_rank2_numeric(
+      prim_fn.numeric_fn |> lower_float2,
+      m,
+      n,
+      prim_fn.shape_fn,
+    ),
+    extend_rank2_gradient(
+      prim_fn.gradient_fn |> lower_float3,
+      m,
+      n,
+      prim_fn.shape_fn,
+    ),
   )
 }
 
@@ -1039,11 +1081,15 @@ pub fn scalar_shape_fn_2(_, _) {
 }
 
 fn numeric_op_1(prim_fn: Prim1Fn, n) {
-  prim_fn.numeric_fn |> lower_float1 |> ext1_numeric(n, scalar_shape_fn_1)
+  prim_fn.numeric_fn
+  |> lower_float1
+  |> extend_rank1_numeric(n, scalar_shape_fn_1)
 }
 
 fn numeric_op_2(prim_fn: Prim2Fn, m, n) {
-  prim_fn.numeric_fn |> lower_float2 |> ext2_numeric(m, n, scalar_shape_fn_2)
+  prim_fn.numeric_fn
+  |> lower_float2
+  |> extend_rank2_numeric(m, n, scalar_shape_fn_2)
 }
 
 pub fn multiply_numeric(t, u) {
@@ -1090,59 +1136,83 @@ pub fn sqr_numeric(t) {
 // Boolean comparators
 //----------------------------
 
-pub fn as_float(t: Tensor) -> Float {
-  let omit_bits = t.offset * 64
-  let assert <<_omit:size(omit_bits), value:float, _:bits>> = t.store
-  value
-}
+// pub fn as_float(t: Tensor) -> Float {
+//   let omit_bits = t.offset * 64
+//   let assert <<_omit:size(omit_bits), value:float, _:bits>> = t.store
+//   value
+// }
 
-pub fn lift_float_to_comparator(f) {
-  fn(ta: Tensor, tb: Tensor) { f(ta |> as_float, tb |> as_float) }
-}
+// pub fn lift_float_to_comparator(f) {
+//   fn(ta: Tensor, tb: Tensor) { f(ta |> as_float, tb |> as_float) }
+// }
 
-pub fn comparator(f) {
-  fn(ta: Tensor, tb: Tensor) -> Bool {
-    { f |> lift_float_to_comparator }(ta, tb)
-  }
-}
+// pub fn comparator(f) {
+//   fn(ta: Tensor, tb: Tensor) -> Bool {
+//     { f |> lift_float_to_comparator }(ta, tb)
+//   }
+// }
 
-pub fn equal_rank_0_0() {
-  fn(x, y) { x == y } |> comparator
-}
+// pub fn equal_rank_0_0() {
+//   fn(x, y) { x == y } |> comparator
+// }
 
-pub fn less_rank_0_0() {
-  fn(x, y) { x <. y } |> comparator
-}
+// pub fn less_rank_0_0() {
+//   fn(x, y) { x <. y } |> comparator
+// }
 
-pub fn less_equal_rank_0_0() {
-  fn(x, y) { x <=. y } |> comparator
-}
+// pub fn less_equal_rank_0_0() {
+//   fn(x, y) { x <=. y } |> comparator
+// }
 
-pub fn great_rank_0_0() {
-  fn(x, y) { x >. y } |> comparator
-}
+// pub fn great_rank_0_0() {
+//   fn(x, y) { x >. y } |> comparator
+// }
 
-pub fn great_equal_rank_0_0() {
-  fn(x, y) { x >=. y } |> comparator
-}
+// pub fn great_equal_rank_0_0() {
+//   fn(x, y) { x >=. y } |> comparator
+// }
 
 //----------------------------
 // Tensorized comparators
 //----------------------------
-pub fn comparator_numeric(f: fn(Float, Float) -> Bool) {
-  fn(da: Dual, db: Dual) {
-    case { f |> comparator }(da.tensor, db.tensor) {
-      True -> 1.0
-      _ -> 0.0
+
+pub fn lower_float2_comparison(
+  f: fn(Float, Float) -> Bool,
+) -> fn(BitArray, BitArray) -> BitArray {
+  fn(a_slice, b_slice) {
+    let assert <<a:float>> = a_slice
+    let assert <<b:float>> = b_slice
+    let c = f(a, b)
+    case c {
+      True -> <<1.0:float>>
+      False -> <<0.0:float>>
     }
   }
 }
 
-pub fn comparator_gradient(f: fn(Float, Float) -> Bool) {
-  fn(da: Dual, db: Dual, z: Tensor) {
-    case { f |> comparator }(da.tensor, db.tensor) {
-      True -> #(z, z)
-      _ -> #(float_to_tensor(0.0), float_to_tensor(0.0))
-    }
-  }
+pub fn t_great_than(t, u) {
+  let f =
+    fn(x, y) { x >. y }
+    |> lower_float2_comparison
+    |> extend_rank2_numeric(0, 0, scalar_shape_fn_2)
+
+  f(t, u)
+}
+
+pub fn t_less_than(t, u) {
+  let f =
+    fn(x, y) { x <. y }
+    |> lower_float2_comparison
+    |> extend_rank2_numeric(0, 0, scalar_shape_fn_2)
+
+  f(t, u)
+}
+
+pub fn t_equal(t, u) {
+  let f =
+    fn(x, y) { x == y }
+    |> lower_float2_comparison
+    |> extend_rank2_numeric(0, 0, scalar_shape_fn_2)
+
+  f(t, u)
 }
