@@ -16,7 +16,7 @@ import gleam/dynamic.{type Dynamic}
 import gleam/float
 import gleam/int
 import gleam/list
-import gleam_community/maths/elementary.{exponential, natural_logarithm}
+import gleam_community/maths/elementary
 import gleeunit/should
 
 pub fn scalar1_shape(_) {
@@ -568,12 +568,12 @@ pub fn a_scalar_ops_test() {
   )
   { d_exp |> check_theta_and_gradient1 }(
     a,
-    exponential(2.0) |> float_to_tensor,
-    [exponential(2.0)] |> dynamic.from |> to_diff,
+    elementary.exponential(2.0) |> float_to_tensor,
+    [elementary.exponential(2.0)] |> dynamic.from |> to_diff,
   )
   { d_log |> check_theta_and_gradient1 }(
     a,
-    unwrap_ok_number(natural_logarithm, 2.0) |> float_to_tensor,
+    unwrap_ok_number(elementary.natural_logarithm, 2.0) |> float_to_tensor,
     [0.5] |> dynamic.from |> to_diff,
   )
   { d_expt |> check_theta_and_gradient2 }(
@@ -646,17 +646,17 @@ pub fn a_scalar_ops_numeric_test() {
   )
   { d_exp |> check_theta_and_gradient1 }(
     a,
-    [exponential(2.0), exponential(3.0), exponential(4.0)]
+    [elementary.exponential(2.0), elementary.exponential(3.0), elementary.exponential(4.0)]
       |> dynamic.from
       |> to_tensor,
-    [[exponential(2.0), exponential(3.0), exponential(4.0)]]
+    [[elementary.exponential(2.0), elementary.exponential(3.0), elementary.exponential(4.0)]]
       |> dynamic.from
       |> to_diff,
   )
   { d_log |> check_theta_and_gradient1 }(
     a,
     [2.0, 3.0, 4.0]
-      |> list.map(unwrap_ok_number(natural_logarithm, _))
+      |> list.map(unwrap_ok_number(elementary.natural_logarithm, _))
       |> dynamic.from
       |> to_tensor,
     [[0.5, 1.0 /. 3.0, 1.0 /. 4.0]]

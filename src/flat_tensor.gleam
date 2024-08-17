@@ -11,7 +11,7 @@ import gleam/list
 import gleam/result
 import gleam/string
 
-import gleam_community/maths/elementary.{exponential, natural_logarithm}
+import gleam_community/maths/elementary
 import mat
 
 //----------------------------
@@ -954,7 +954,7 @@ pub fn expt_0_0() {
     gradient_fn: fn(a, b, z) {
       let assert Ok(r1) = float.power(a, b -. 1.0)
       let assert Ok(r2) = float.power(a, b)
-      let assert Ok(log_r) = natural_logarithm(a)
+      let assert Ok(log_r) = elementary.natural_logarithm(a)
       #(z *. b *. r1, z *. r2 *. log_r)
     },
     shape_fn: default_shape_fn_2,
@@ -964,8 +964,8 @@ pub fn expt_0_0() {
 /// natural exponential
 pub fn exp_0() {
   Prim1Fn(
-    numeric_fn: exponential,
-    gradient_fn: fn(a, z) { z *. exponential(a) },
+    numeric_fn: elementary.exponential,
+    gradient_fn: fn(a, z) { z *. elementary.exponential(a) },
     shape_fn: default_shape_fn_1,
   )
 }
@@ -973,7 +973,7 @@ pub fn exp_0() {
 /// natural logarithm
 pub fn log_0() {
   Prim1Fn(
-    numeric_fn: unwrap_ok_number(natural_logarithm, _),
+    numeric_fn: unwrap_ok_number(elementary.natural_logarithm, _),
     gradient_fn: fn(a, z) { z *. { 1.0 /. a } },
     shape_fn: default_shape_fn_1,
   )
