@@ -1313,8 +1313,7 @@ pub fn grid_search(
     batch_size |> list.map(dynamic.from),
   ]
   |> cartesian_product
-  // use parallel_map.list_find_pmap
-  |> parallel_map.list_pmap(
+  |> parallel_map.list_find_pmap(
     fn(hypers) {
       let assert [revs, alpha, batch_size] = hypers
       let assert Ok(ok_revs) = revs |> dynamic.int
