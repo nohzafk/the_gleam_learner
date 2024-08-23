@@ -1144,18 +1144,11 @@ pub fn d_sqr(da) {
 //------------------------------------
 // non-differentiable extended functions.
 //------------------------------------
-pub fn scalar_shape_fn_1(_) {
-  []
-}
-
-pub fn scalar_shape_fn_2(_, _) {
-  []
-}
 
 fn numeric_op_1(prim_fn: Prim1Fn, n) {
   prim_fn.numeric_fn
   |> lower_float1
-  |> extend_rank1_numeric(n, scalar_shape_fn_1)
+  |> extend_rank1_numeric(n, fn(_) { [] })
 }
 
 fn numeric_op_2(prim_fn: Prim2Fn, m, n) {
@@ -1163,7 +1156,7 @@ fn numeric_op_2(prim_fn: Prim2Fn, m, n) {
     Prim2FloatFn(numeric_fn, ..) -> numeric_fn |> lower_float2
     Prim2BitArrayFn(numeric_fn, ..) -> numeric_fn
   }
-  extend_rank2_numeric(numeric_fn, m, n, scalar_shape_fn_2)
+  extend_rank2_numeric(numeric_fn, m, n, fn(_, _) { [] })
 }
 
 pub fn multiply_numeric(t, u) {
@@ -1280,10 +1273,6 @@ pub fn not_equal_1(t, u) {
 // C-star-2-1
 //----------------------------
 
-// i'm writing a tensor library in Gleam language
-// the code is ported from Racket language
-//
-// Refer to the
 fn multiply_2_1_base_numeric(v0: BitArray, v1: BitArray) -> BitArray {
   // Number of floats
   let v0_size = bit_array.byte_size(v0) / 8
