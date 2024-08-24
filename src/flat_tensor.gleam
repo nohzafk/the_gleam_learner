@@ -385,17 +385,28 @@ pub fn flat_extend_rank1_numeric(
   new_flat(shape: s_out, store: v_out, offset: 0)
 }
 
-pub fn extend_rank1_gradient(f, m, shape_fn) {
+pub fn extend_rank1_gradient(f: fn(Float, Float) -> Float, n, shape_fn) {
   fn(t: Tensor, z: Tensor) -> Tensor {
     case t.rank {
-      0 -> f(t.store, z.store) |> scalarize |> float_to_tensor
-      _ -> flat_extend_rank1_gradient(f, m, shape_fn, t, z)
+      0 -> {
+        let assert <<a:float>> = t.store
+        let assert <<b:float>> = z.store
+        f(a, b) |> float_to_tensor
+      }
+      _ ->
+        flat_extend_rank1_gradient(
+          f |> unary_op_gradient_computer,
+          n,
+          shape_fn,
+          t,
+          z,
+        )
     }
   }
 }
 
 pub fn flat_extend_rank1_gradient(
-  tensor_store_f: fn(BitArray, BitArray) -> BitArray,
+  f_gradient_store,
   min_rank: Int,
   shape_fn: fn(Shape) -> Shape,
   t0: Tensor,
@@ -405,20 +416,46 @@ pub fn flat_extend_rank1_gradient(
   let s0 = t0.shape
   let sf0 = min_shape(min_rank, s0)
   let stride0 = size_of(sf0)
+
+  let size_z = size_of(z.shape)
   let stride_z = size_of(shape_fn(sf0))
 
-  let v_out =
-    list.range(0, t0.size / stride0 - 1)
-    |> list.map(fn(i0) {
-      let assert Ok(t0_slice) =
-        t0.store |> bit_array.slice(t0.offset + i0 * stride0 * 8, stride0 * 8)
-      let assert Ok(z_slice) =
-        z.store |> bit_array.slice(z.offset + i0 * stride_z * 8, stride_z * 8)
-      tensor_store_f(t0_slice, z_slice)
-    })
-    |> bit_array.concat
+  let g0 =
+    list.index_fold(
+      list.range(0, size_z / stride_z - 1),
+      new_vec(size_of(s0)),
+      fn(acc, _, index) {
+        let iz = index * stride_z
 
-  new_flat(shape: s0, store: v_out, offset: 0)
+        f_gradient_store(
+          acc,
+          t0.store,
+          t0.offset + index * stride0 * 8,
+          stride0,
+          z.store,
+          iz,
+          stride_z,
+        )
+      },
+    )
+  new_flat(shape: s0, store: g0, offset: 0)
+}
+
+fn unary_op_gradient_computer(
+  f: fn(Float, Float) -> Float,
+) -> fn(BitArray, BitArray, Int, Int, BitArray, Int, Int) -> BitArray {
+  fn(g0, t0_store, offset_t0, stride0, z_store, iz, stride_z) {
+    let assert Ok(t0_slice) =
+      t0_store |> bit_array.slice(offset_t0, stride0 * 8)
+    let assert Ok(z_slice) = z_store |> bit_array.slice(iz * 8, stride_z * 8)
+
+    let assert <<a:float>> = t0_slice
+    let assert <<b:float>> = z_slice
+
+    let c = f(a, b)
+
+    accumulate_gradient(g0, iz, c)
+  }
 }
 
 //—————————————————–—————————————————–—————————————————–
@@ -610,7 +647,7 @@ pub fn extend_rank2_gradient(
 }
 
 pub fn flat_extend_rank2_gradient(
-  tensor_store_f,
+  f_gradient_store,
   r0,
   r1,
   shape_fn,
@@ -636,7 +673,7 @@ pub fn flat_extend_rank2_gradient(
         let #(i0, i1) = idxs(strides, iz * stride_z, t0.offset, t1.offset)
 
         let #(new_g0, new_g1) =
-          tensor_store_f(
+          f_gradient_store(
             acc.0,
             acc.1,
             t0.store,
@@ -660,7 +697,7 @@ pub fn flat_extend_rank2_gradient(
   })
 }
 
-fn get_float(array: BitArray, index: Int) -> Float {
+pub fn get_float(array: BitArray, index: Int) -> Float {
   let omit_bits = index * 64
   let assert <<_:bits-size(omit_bits), v:float, _:bits>> = array
   v
@@ -851,9 +888,15 @@ fn gradient_sigma_list(lst: List(Differentiable), sigma) {
 // Dualized tensor op creators
 //----------------------------
 pub type Prim1Fn {
-  Prim1Fn(
+  Prim1FloatFn(
     numeric_fn: fn(Float) -> Float,
     gradient_fn: fn(Float, Float) -> Float,
+    shape_fn: fn(Shape) -> Shape,
+  )
+  Prim1BitArrayFn(
+    numeric_fn: fn(BitArray) -> BitArray,
+    gradient_fn: fn(BitArray, BitArray, Int, Int, BitArray, Int, Int) ->
+      BitArray,
     shape_fn: fn(Shape) -> Shape,
   )
 }
@@ -938,18 +981,20 @@ pub fn prim2_dual(numeric_fn, gradient_fn) {
 
 /// ext function extend the prim opeartor to apply to tensors of certain shapes
 pub fn ext1(prim_fn: Prim1Fn, n: Int) {
-  prim1_dual(
-    extend_rank1_numeric(
-      prim_fn.numeric_fn |> lower_float1,
-      n,
-      prim_fn.shape_fn,
-    ),
-    extend_rank1_gradient(
-      prim_fn.gradient_fn |> lower_float2,
-      n,
-      prim_fn.shape_fn,
-    ),
-  )
+  case prim_fn {
+    Prim1FloatFn(numeric_fn, gradient_fn, shape_fn) ->
+      prim1_dual(
+        extend_rank1_numeric(numeric_fn |> lower_float1, n, shape_fn),
+        extend_rank1_gradient(gradient_fn, n, shape_fn),
+      )
+    Prim1BitArrayFn(numeric_fn, gradient_fn, shape_fn) ->
+      prim1_dual(
+        extend_rank1_numeric(numeric_fn, n, shape_fn),
+        fn(t: Tensor, z: Tensor) -> Tensor {
+          flat_extend_rank1_gradient(gradient_fn, n, shape_fn, t, z)
+        },
+      )
+  }
 }
 
 pub fn ext2(prim_fn: Prim2Fn, m: Int, n: Int) {
@@ -962,7 +1007,6 @@ pub fn ext2(prim_fn: Prim2Fn, m: Int, n: Int) {
     Prim2BitArrayFn(numeric_fn, gradient_fn, shape_fn) ->
       prim2_dual(
         extend_rank2_numeric(numeric_fn, m, n, shape_fn),
-        // extend_rank2_gradient(gradient_fn, m, n, shape_fn),
         fn(t: Tensor, u: Tensor, z: Tensor) -> #(Tensor, Tensor) {
           flat_extend_rank2_gradient(gradient_fn, m, n, shape_fn, t, u, z)
         },
@@ -1035,7 +1079,7 @@ pub fn expt_0_0() {
 
 /// natural exponential
 pub fn exp_0() {
-  Prim1Fn(
+  Prim1FloatFn(
     numeric_fn: elementary.exponential,
     gradient_fn: fn(a, z) { z *. elementary.exponential(a) },
     shape_fn: default_shape_fn_1,
@@ -1044,7 +1088,7 @@ pub fn exp_0() {
 
 /// natural logarithm
 pub fn log_0() {
-  Prim1Fn(
+  Prim1FloatFn(
     numeric_fn: unwrap_ok_number(elementary.natural_logarithm, _),
     gradient_fn: fn(a, z) { z *. { 1.0 /. a } },
     shape_fn: default_shape_fn_1,
@@ -1052,7 +1096,7 @@ pub fn log_0() {
 }
 
 pub fn sqrt_0() {
-  Prim1Fn(
+  Prim1FloatFn(
     numeric_fn: unwrap_ok_number(float.square_root, _),
     gradient_fn: fn(x, z) {
       let assert Ok(r) = float.square_root(x)
@@ -1063,7 +1107,7 @@ pub fn sqrt_0() {
 }
 
 pub fn abs_0() {
-  Prim1Fn(
+  Prim1FloatFn(
     numeric_fn: float.absolute_value,
     gradient_fn: fn(x, z) {
       case x <. 0.0 {
@@ -1076,7 +1120,7 @@ pub fn abs_0() {
 }
 
 pub fn rectify_0() {
-  Prim1Fn(
+  Prim1FloatFn(
     numeric_fn: fn(s) {
       case s <. 0.0 {
         True -> 0.0
@@ -1146,9 +1190,11 @@ pub fn d_sqr(da) {
 //------------------------------------
 
 fn numeric_op_1(prim_fn: Prim1Fn, n) {
-  prim_fn.numeric_fn
-  |> lower_float1
-  |> extend_rank1_numeric(n, fn(_) { [] })
+  let numeric_fn = case prim_fn {
+    Prim1FloatFn(numeric_fn, ..) -> numeric_fn |> lower_float1
+    Prim1BitArrayFn(numeric_fn, ..) -> numeric_fn
+  }
+  extend_rank1_numeric(numeric_fn, n, fn(_) { [] })
 }
 
 fn numeric_op_2(prim_fn: Prim2Fn, m, n) {

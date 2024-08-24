@@ -4,11 +4,12 @@ import flat_tensor.{
   d_divide, d_exp, d_expt, d_log, d_multiply, d_multiply_2_1,
   d_multiply_2_1_numeric, d_sqr, d_sqrt, d_subtract, equal_elements,
   extend_rank1_gradient, extend_rank1_numeric, extend_rank2_gradient,
-  extend_rank2_numeric, extend_rank2_shapes, float_bits_walker, float_to_tensor,
-  floats_to_tensor, gradient_of, gradient_once, greater_1, idxs, less_1,
-  lower_float2, map_tensor_recursively, merge_shapes, min_shape, new_flat, rank,
-  reshape, shape, size_of, store, tensor_equal, tlen, to_bitarray, to_diff,
-  to_dual, to_tensor, tref, trefs, unwrap_ok_number, unwrap_ok_number2,
+  extend_rank2_numeric, extend_rank2_shapes, flat_extend_rank1_gradient,
+  float_bits_walker, float_to_tensor, floats_to_tensor, get_float, gradient_of,
+  gradient_once, greater_1, idxs, less_1, lower_float2, map_tensor_recursively,
+  merge_shapes, min_shape, new_flat, rank, reshape, shape, size_of, store,
+  tensor_equal, tlen, to_bitarray, to_diff, to_dual, to_tensor, tref, trefs,
+  unwrap_ok_number, unwrap_ok_number2,
 }
 import gleam/bit_array
 import gleam/bool
@@ -367,8 +368,7 @@ pub fn extend_ops_ext_gradient_test() {
   {
     let sqr_gradient = fn(a, z) { z *. 2.0 *. a }
 
-    let tensor_sqr =
-      sqr_gradient |> lower_float2 |> extend_rank1_gradient(0, scalar1_shape)
+    let tensor_sqr = sqr_gradient |> extend_rank1_gradient(0, scalar1_shape)
 
     tensor_sqr(r1_td, r1_td |> one_like)
     |> store
@@ -392,7 +392,6 @@ pub fn extend_ops_ext_gradient_test() {
   {
     let #(ta, tb) = tensor_add(r1_td, r2_td, r2_td |> one_like)
     ta.shape |> should.equal([3])
-    // ta.store |> should.equal([2.0, 2.0, 2.0] |> to_bitarray)
     ta.store |> bitarray_to_floats |> should.equal([2.0, 2.0, 2.0])
     tb.shape |> should.equal([2, 3])
     tb.store
@@ -414,12 +413,29 @@ pub fn extend_ops_ext_gradient_test() {
     gt |> tensor_should_equal([1, 2, 3] |> dynamic.from |> to_tensor)
     gu |> tensor_should_equal([2, 3, 4] |> dynamic.from |> to_tensor)
   }
+
   {
-    let sum_1_gradient = fn(g: BitArray, vz: BitArray) -> BitArray {
-      let assert <<z:float>> = vz
-      float_bits_walker(fn(acc, _v) { <<acc:bits, z:float>> }, g, <<>>)
+    let sum_1_gradient = fn(g, _t, it, st, vz, iz, _sz) {
+      // vz: The incoming gradient tensor
+      // get the gradient value from vz
+      let gradient_value = get_float(vz, iz)
+      let new_slice = list.repeat(gradient_value, st) |> to_bitarray
+
+      // Insert the new slice into g at the correct position
+      let assert Ok(before) = bit_array.slice(from: g, at: 0, take: it)
+      let assert Ok(after) =
+        bit_array.slice(
+          from: g,
+          at: it + st * 8,
+          take: bit_array.byte_size(g) - { it / 8 + st } * 8,
+        )
+
+      bit_array.concat([before, new_slice, after])
     }
-    let sum_gradient = sum_1_gradient |> extend_rank1_gradient(1, scalar1_shape)
+
+    let sum_gradient = fn(t, z) {
+      flat_extend_rank1_gradient(sum_1_gradient, 1, scalar1_shape, t, z)
+    }
 
     sum_gradient([2, 3, 4] |> dynamic.from |> to_tensor, float_to_tensor(1.0))
     |> tensor_should_equal([1, 1, 1] |> dynamic.from |> to_tensor)
