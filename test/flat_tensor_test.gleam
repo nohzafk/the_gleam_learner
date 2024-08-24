@@ -1,15 +1,16 @@
 import flat_tensor.{
   type Differentiable, type Dual, type Shape, type Tensor, Dual, DualDiff,
-  ListDiff, add_numeric, bitarray_to_floats, build_store, build_tensor, d_add,
-  d_divide, d_exp, d_expt, d_log, d_multiply, d_multiply_2_1,
-  d_multiply_2_1_numeric, d_sqr, d_sqrt, d_subtract, equal_elements,
-  extend_rank1_gradient, extend_rank1_numeric, extend_rank2_gradient,
-  extend_rank2_numeric, extend_rank2_shapes, flat_extend_rank1_gradient,
-  float_bits_walker, float_to_tensor, floats_to_tensor, get_float, gradient_of,
-  gradient_once, greater_1, idxs, less_1, lower_float2, map_tensor_recursively,
-  merge_shapes, min_shape, new_flat, rank, reshape, shape, size_of, store,
-  tensor_equal, tlen, to_bitarray, to_diff, to_dual, to_tensor, tref, trefs,
-  unwrap_ok_number, unwrap_ok_number2,
+  ListDiff, add_numeric, bitarray_replace_slice, bitarray_to_floats, build_store,
+  build_tensor, d_add, d_divide, d_exp, d_expt, d_log, d_multiply,
+  d_multiply_2_1, d_multiply_2_1_numeric, d_sqr, d_sqrt, d_subtract,
+  equal_elements, extend_rank1_gradient, extend_rank1_numeric,
+  extend_rank2_gradient, extend_rank2_numeric, extend_rank2_shapes,
+  flat_extend_rank1_gradient, float_bits_walker, float_to_tensor,
+  floats_to_tensor, get_float, gradient_of, gradient_once, greater_1, idxs,
+  less_1, lower_float2, map_tensor_recursively, merge_shapes, min_shape,
+  new_flat, rank, reshape, shape, size_of, store, tensor_equal, tlen,
+  to_bitarray, to_diff, to_dual, to_tensor, tref, trefs, unwrap_ok_number,
+  unwrap_ok_number2,
 }
 import gleam/bit_array
 import gleam/bool
@@ -420,17 +421,7 @@ pub fn extend_ops_ext_gradient_test() {
       // get the gradient value from vz
       let gradient_value = get_float(vz, iz)
       let new_slice = list.repeat(gradient_value, st) |> to_bitarray
-
-      // Insert the new slice into g at the correct position
-      let assert Ok(before) = bit_array.slice(from: g, at: 0, take: it)
-      let assert Ok(after) =
-        bit_array.slice(
-          from: g,
-          at: it + st * 8,
-          take: bit_array.byte_size(g) - { it / 8 + st } * 8,
-        )
-
-      bit_array.concat([before, new_slice, after])
+      bitarray_replace_slice(g, it, new_slice)
     }
 
     let sum_gradient = fn(t, z) {

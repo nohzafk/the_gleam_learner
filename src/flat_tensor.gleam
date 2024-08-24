@@ -317,6 +317,19 @@ pub fn float_bits_walker(f, slice: BitArray, acc) {
   }
 }
 
+pub fn bitarray_replace_slice(g, offset, new_slice) {
+  let assert Ok(before) = bit_array.slice(from: g, at: 0, take: offset)
+
+  let slice_bytes = bit_array.byte_size(new_slice)
+  let assert Ok(after) =
+    bit_array.slice(
+      from: g,
+      at: offset + slice_bytes,
+      take: bit_array.byte_size(g) - { offset + slice_bytes },
+    )
+  bit_array.concat([before, new_slice, after])
+}
+
 pub fn bitarray_to_floats(slice: BitArray) {
   float_bits_walker(fn(acc, i) { [i, ..acc] }, slice, []) |> list.reverse
 }
@@ -1379,4 +1392,23 @@ pub fn d_multiply_2_1_numeric(t, u) {
   let f =
     extend_rank2_numeric(multiply_2_1_base_numeric, 2, 1, default_shape_fn_2)
   f(t, u)
+}
+
+//----------------------------
+// D-sum
+//----------------------------
+pub fn sum_1_gradient(g0, _t0_store, offset_t0, stride0, z_store, iz, _stride_z) {
+  let z = get_float(z_store, iz)
+
+  let assert Ok(g0_slice) = bit_array.slice(g0, offset_t0, stride0 * 8)
+  let new_slice =
+    float_bits_walker(
+      fn(acc, current_value) {
+        let new_value = current_value +. z
+        <<acc:bits, new_value:float>>
+      },
+      g0_slice,
+      <<>>,
+    )
+  bitarray_replace_slice(g0, offset_t0, new_slice)
 }
