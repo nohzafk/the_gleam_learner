@@ -179,7 +179,6 @@ pub fn extend_ops_extend_rank1_numeric_test() {
 
       let sum = float_bits_walker(fn(acc, i) { acc +. i }, slice, 0.0)
       <<v_out:bits, sum:float>>
-      // bitarray_replace_slice(v_out, i_out * 8, stride_out, <<sum:float>>)
     }
 
     let sum_shape_f = fn(_in_f_shape: Shape) -> Shape { [] }
@@ -912,27 +911,64 @@ pub fn tensorized_comparison_test() {
 }
 
 pub fn d_multiply_2_1_test() {
+  {
+    let a =
+      [[3, 4, 5, 6], [7, 8, 9, 10]]
+      |> dynamic.from
+      |> to_tensor
+    let b =
+      [2, 3, 4, 5]
+      |> dynamic.from
+      |> to_tensor
+
+    d_multiply_2_1_numeric(a, b)
+    |> tensor_should_equal(
+      [[6, 12, 20, 30], [14, 24, 36, 50]] |> dynamic.from |> to_tensor,
+    )
+
+    { d_multiply_2_1 |> check_theta_and_gradient2 }(
+      a,
+      b,
+      [[6, 12, 20, 30], [14, 24, 36, 50]] |> dynamic.from |> to_tensor,
+      [
+        [[2, 3, 4, 5], [2, 3, 4, 5]] |> dynamic.from |> to_tensor,
+        [10, 12, 14, 16] |> dynamic.from |> to_tensor,
+      ]
+        |> tensors_to_differentiable,
+    )
+  }
+
   let a =
     [[3, 4, 5, 6], [7, 8, 9, 10]]
     |> dynamic.from
     |> to_tensor
   let b =
-    [2, 3, 4, 5]
+    [[2, 3, 4, 5], [12, 13, 14, 15]]
     |> dynamic.from
     |> to_tensor
 
   d_multiply_2_1_numeric(a, b)
   |> tensor_should_equal(
-    [[6, 12, 20, 30], [14, 24, 36, 50]] |> dynamic.from |> to_tensor,
+    [
+      [[6, 12, 20, 30], [14, 24, 36, 50]],
+      [[36, 52, 70, 90], [84, 104, 126, 150]],
+    ]
+    |> dynamic.from
+    |> to_tensor,
   )
 
   { d_multiply_2_1 |> check_theta_and_gradient2 }(
     a,
     b,
-    [[6, 12, 20, 30], [14, 24, 36, 50]] |> dynamic.from |> to_tensor,
     [
-      [[2, 3, 4, 5], [2, 3, 4, 5]] |> dynamic.from |> to_tensor,
-      [10, 12, 14, 16] |> dynamic.from |> to_tensor,
+      [[6, 12, 20, 30], [14, 24, 36, 50]],
+      [[36, 52, 70, 90], [84, 104, 126, 150]],
+    ]
+      |> dynamic.from
+      |> to_tensor,
+    [
+      [[14, 16, 18, 20], [14, 16, 18, 20]] |> dynamic.from |> to_tensor,
+      [[10, 12, 14, 16], [10, 12, 14, 16]] |> dynamic.from |> to_tensor,
     ]
       |> tensors_to_differentiable,
   )

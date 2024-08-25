@@ -715,8 +715,8 @@ pub fn flat_extend_rank2_gradient(
 }
 
 pub fn get_float(array: BitArray, index: Int) -> Float {
-  let omit_bits = index * 64
-  let assert <<_:bits-size(omit_bits), v:float, _:bits>> = array
+  let assert Ok(v_slice) = bit_array.slice(array, index * 8, 8)
+  let assert <<v:float>> = v_slice
   v
 }
 
@@ -1366,7 +1366,7 @@ pub fn multiply_2_1_base_gradient(
   i1: Int,
   stride1: Int,
   z_store: BitArray,
-  iz: Int,
+  offset_z: Int,
   stride_z: Int,
 ) -> #(BitArray, BitArray) {
   list.range(0, stride_z - 1)
@@ -1375,7 +1375,7 @@ pub fn multiply_2_1_base_gradient(
 
     let a = get_float(t0_store, i0 + i)
     let b = get_float(t1_store, i1 + { i % stride1 })
-    let z = get_float(z_store, iz + i)
+    let z = get_float(z_store, offset_z / 64 + i)
 
     let g0_val = z *. b
     let g1_val = z *. a
