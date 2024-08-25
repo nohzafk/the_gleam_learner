@@ -359,9 +359,7 @@ pub fn lower_float2(
 
 // element-wise multiplication with broadcasting
 pub fn extend_rank1_numeric(f, m, shape_fn) {
-  fn(t: Tensor) -> Tensor {
-    flat_extend_rank1_numeric(f, m, shape_fn, t)
-  }
+  fn(t: Tensor) -> Tensor { flat_extend_rank1_numeric(f, m, shape_fn, t) }
 }
 
 pub fn flat_extend_rank1_numeric(
@@ -382,9 +380,7 @@ pub fn flat_extend_rank1_numeric(
 
   let v_out =
     list.range(0, size_out / stride_out - 1)
-    |> list.fold(
-      <<>>,
-      fn(acc, i) {
+    |> list.fold(<<>>, fn(acc, i) {
       f(t0.store, t0.offset + i * stride0 * 8, stride0, acc, i, stride_out)
     })
 
@@ -1407,6 +1403,13 @@ pub fn d_multiply_2_1_numeric(t, u) {
 //----------------------------
 // D-sum
 //----------------------------
+pub fn sum_1_numeric(t0_store, offset, stride0, v_out, _i_out, _stride_out) {
+  let assert Ok(slice) = t0_store |> bit_array.slice(offset, stride0 * 8)
+
+  let sum = float_bits_walker(fn(acc, i) { acc +. i }, slice, 0.0)
+  <<v_out:bits, sum:float>>
+}
+
 pub fn sum_1_gradient(g0, _t0_store, offset_t0, stride0, z_store, iz, _stride_z) {
   let z = get_float(z_store, iz)
 
@@ -1421,4 +1424,28 @@ pub fn sum_1_gradient(g0, _t0_store, offset_t0, stride0, z_store, iz, _stride_z)
       <<>>,
     )
   bitarray_replace_slice(g0, offset_t0, stride0, new_slice)
+}
+
+pub fn refr(lst: List(a), n: Int) -> List(a) {
+  lst |> list.drop(n)
+}
+
+pub fn sum_shape(st: Shape) {
+  refr(st, 1)
+}
+
+pub fn sum_1() {
+  Prim1BitArrayFn(
+    numeric_fn: sum_1_numeric,
+    gradient_fn: sum_1_gradient,
+    shape_fn: sum_shape,
+  )
+}
+
+pub fn d_sum(t) {
+  { sum_1() |> ext1(1) }(t)
+}
+
+pub fn d_sum_numeric(t) {
+  extend_rank1_numeric(sum_1_numeric, 1, sum_shape)(t)
 }

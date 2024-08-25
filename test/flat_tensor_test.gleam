@@ -2,7 +2,7 @@ import flat_tensor.{
   type Differentiable, type Dual, type Shape, type Tensor, Dual, DualDiff,
   ListDiff, add_numeric, bitarray_replace_slice, bitarray_to_floats, build_store,
   build_tensor, d_add, d_divide, d_exp, d_expt, d_log, d_multiply,
-  d_multiply_2_1, d_multiply_2_1_numeric, d_sqr, d_sqrt, d_subtract,
+  d_multiply_2_1, d_multiply_2_1_numeric, d_sqr, d_sqrt, d_subtract, d_sum,
   equal_elements, extend_rank1_gradient, extend_rank1_numeric,
   extend_rank2_gradient, extend_rank2_numeric, extend_rank2_shapes,
   flat_extend_rank1_gradient, float_bits_walker, float_to_tensor,
@@ -937,39 +937,148 @@ pub fn d_multiply_2_1_test() {
         |> tensors_to_differentiable,
     )
   }
+  {
+    let a =
+      [[3, 4, 5, 6], [7, 8, 9, 10]]
+      |> dynamic.from
+      |> to_tensor
+    let b =
+      [[2, 3, 4, 5], [12, 13, 14, 15]]
+      |> dynamic.from
+      |> to_tensor
 
-  let a =
-    [[3, 4, 5, 6], [7, 8, 9, 10]]
-    |> dynamic.from
-    |> to_tensor
-  let b =
-    [[2, 3, 4, 5], [12, 13, 14, 15]]
-    |> dynamic.from
-    |> to_tensor
-
-  d_multiply_2_1_numeric(a, b)
-  |> tensor_should_equal(
-    [
-      [[6, 12, 20, 30], [14, 24, 36, 50]],
-      [[36, 52, 70, 90], [84, 104, 126, 150]],
-    ]
-    |> dynamic.from
-    |> to_tensor,
-  )
-
-  { d_multiply_2_1 |> check_theta_and_gradient2 }(
-    a,
-    b,
-    [
-      [[6, 12, 20, 30], [14, 24, 36, 50]],
-      [[36, 52, 70, 90], [84, 104, 126, 150]],
-    ]
+    d_multiply_2_1_numeric(a, b)
+    |> tensor_should_equal(
+      [
+        [[6, 12, 20, 30], [14, 24, 36, 50]],
+        [[36, 52, 70, 90], [84, 104, 126, 150]],
+      ]
       |> dynamic.from
       |> to_tensor,
-    [
-      [[14, 16, 18, 20], [14, 16, 18, 20]] |> dynamic.from |> to_tensor,
-      [[10, 12, 14, 16], [10, 12, 14, 16]] |> dynamic.from |> to_tensor,
-    ]
+    )
+
+    { d_multiply_2_1 |> check_theta_and_gradient2 }(
+      a,
+      b,
+      [
+        [[6, 12, 20, 30], [14, 24, 36, 50]],
+        [[36, 52, 70, 90], [84, 104, 126, 150]],
+      ]
+        |> dynamic.from
+        |> to_tensor,
+      [
+        [[14, 16, 18, 20], [14, 16, 18, 20]] |> dynamic.from |> to_tensor,
+        [[10, 12, 14, 16], [10, 12, 14, 16]] |> dynamic.from |> to_tensor,
+      ]
+        |> tensors_to_differentiable,
+    )
+  }
+}
+
+pub fn sum_test() {
+  { d_sum |> check_theta_and_gradient1 }(
+    [3, 4, 5] |> dynamic.from |> to_tensor,
+    float_to_tensor(12.0),
+    [[1, 1, 1] |> dynamic.from |> to_tensor]
       |> tensors_to_differentiable,
   )
+
+  {
+    let a =
+      [[3, 4, 5], [6, 7, 8]]
+      |> dynamic.from
+      |> to_tensor
+
+    d_sum(a |> to_dual).tensor
+    |> tensor_should_equal(
+      [12, 21]
+      |> dynamic.from
+      |> to_tensor,
+    )
+
+    check_gradients1(
+      fn(b) { d_multiply(b, b) |> d_sum },
+      a,
+      [
+        [[6, 8, 10], [12, 14, 16]]
+        |> dynamic.from
+        |> to_tensor,
+      ]
+        |> tensors_to_differentiable,
+    )
+  }
+
+  let dot_product = fn(a, b) { d_multiply_2_1(a, b) |> d_sum }
+  let sse = fn(a, b) { d_subtract(a, b) |> d_sqr |> d_sum }
+  {
+    let a =
+      [[3, 4, 5, 6], [7, 8, 9, 10]]
+      |> dynamic.from
+      |> to_tensor
+    let b = [2, 3, 4, 5] |> dynamic.from |> to_tensor
+
+    { d_sum |> check_theta_and_gradient1 }(
+      b,
+      float_to_tensor(14.0),
+      [[1, 1, 1, 1] |> dynamic.from |> to_tensor]
+        |> tensors_to_differentiable,
+    )
+
+    { dot_product |> check_theta_and_gradient2 }(
+      a,
+      b,
+      [68, 124] |> dynamic.from |> to_tensor,
+      [
+        [[2, 3, 4, 5], [2, 3, 4, 5]]
+          |> dynamic.from
+          |> to_tensor,
+        [10, 12, 14, 16] |> dynamic.from |> to_tensor,
+      ]
+        |> tensors_to_differentiable,
+    )
+
+    { sse |> check_theta_and_gradient2 }(
+      a,
+      b,
+      [4, 100] |> dynamic.from |> to_tensor,
+      [
+        [[2, 2, 2, 2], [10, 10, 10, 10]]
+          |> dynamic.from
+          |> to_tensor,
+        [-12, -12, -12, -12]
+          |> dynamic.from
+          |> to_tensor,
+      ]
+        |> tensors_to_differentiable,
+    )
+  }
+
+  {
+    let a =
+      [[3, 4, 5, 6], [7, 8, 9, 10]]
+      |> dynamic.from
+      |> to_tensor
+
+    let b =
+      [[2, 3, 4, 5], [12, 13, 14, 15]]
+      |> dynamic.from
+      |> to_tensor
+
+    { dot_product |> check_theta_and_gradient2 }(
+      a,
+      b,
+      [[68, 124], [248, 464]]
+        |> dynamic.from
+        |> to_tensor,
+      [
+        [[14, 16, 18, 20], [14, 16, 18, 20]]
+          |> dynamic.from
+          |> to_tensor,
+        [[10, 12, 14, 16], [10, 12, 14, 16]]
+          |> dynamic.from
+          |> to_tensor,
+      ]
+        |> tensors_to_differentiable,
+    )
+  }
 }
