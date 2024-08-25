@@ -174,9 +174,12 @@ pub fn extend_ops_extend_rank1_numeric_test() {
     new_flat([2, 3, 4], build_store(24, fn(i) { { 2 * i } |> int.to_float }), 0)
 
   let sum = fn(t: Tensor) {
-    let sum_f = fn(slice: BitArray) -> BitArray {
+    let sum_f = fn(t0_store, offset, stride0, v_out, _i_out, _stride_out) {
+      let assert Ok(slice) = t0_store |> bit_array.slice(offset, stride0 * 8)
+
       let sum = float_bits_walker(fn(acc, i) { acc +. i }, slice, 0.0)
-      <<sum:float>>
+      <<v_out:bits, sum:float>>
+      // bitarray_replace_slice(v_out, i_out * 8, stride_out, <<sum:float>>)
     }
 
     let sum_shape_f = fn(_in_f_shape: Shape) -> Shape { [] }
@@ -189,8 +192,16 @@ pub fn extend_ops_extend_rank1_numeric_test() {
   |> should.equal([12.0, 44.0, 76.0, 108.0, 140.0, 172.0])
 
   let dup = fn(t: Tensor) {
-    let dup_f = fn(slice: BitArray) -> BitArray {
-      bit_array.concat([slice, slice])
+    let dup_f = fn(in_v, i_i, s_i, out_v, _i_o, s_o) -> BitArray {
+      let new_slice =
+        list.range(0, s_o - 1)
+        |> list.fold(<<>>, fn(acc, i) {
+          let source_index = i_i + { i % s_i } * 8
+          let assert Ok(value_slice) =
+            bit_array.slice(from: in_v, at: source_index, take: 8)
+          bit_array.append(acc, value_slice)
+        })
+      <<out_v:bits, new_slice:bits>>
     }
 
     let dup_shape_f = fn(in_f_shape: Shape) -> Shape {
@@ -421,7 +432,7 @@ pub fn extend_ops_ext_gradient_test() {
       // get the gradient value from vz
       let gradient_value = get_float(vz, iz)
       let new_slice = list.repeat(gradient_value, st) |> to_bitarray
-      bitarray_replace_slice(g, it, new_slice)
+      bitarray_replace_slice(g, it, st, new_slice)
     }
 
     let sum_gradient = fn(t, z) {
