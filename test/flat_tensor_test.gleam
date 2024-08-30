@@ -1,16 +1,16 @@
 import flat_tensor.{
   type Differentiable, type Dual, type Shape, type Tensor, Dual, DualDiff,
-  ListDiff, add_numeric, bitarray_replace_slice, bitarray_to_floats, build_store,
-  build_tensor, d_add, d_divide, d_exp, d_expt, d_log, d_multiply,
-  d_multiply_2_1, d_multiply_2_1_numeric, d_sqr, d_sqrt, d_subtract, d_sum,
-  equal_elements, extend_rank1_gradient, extend_rank1_numeric,
+  ListDiff, add_numeric, argmax_numeric, bitarray_replace_slice,
+  bitarray_to_floats, build_store, build_tensor, d_add, d_argmax, d_divide,
+  d_exp, d_expt, d_log, d_multiply, d_multiply_2_1, d_sqr, d_sqrt, d_subtract,
+  d_sum, equal_elements, extend_rank1_gradient, extend_rank1_numeric,
   extend_rank2_gradient, extend_rank2_numeric, extend_rank2_shapes,
   flat_extend_rank1_gradient, float_bits_walker, float_to_tensor,
   floats_to_tensor, get_float, gradient_of, gradient_once, greater_1, idxs,
   less_1, lower_float2, map_tensor_recursively, merge_shapes, min_shape,
-  new_flat, rank, reshape, shape, size_of, store, tensor_equal, tlen,
-  to_bitarray, to_diff, to_dual, to_tensor, tref, trefs, unwrap_ok_number,
-  unwrap_ok_number2,
+  multiply_2_1_numeric, new_flat, rank, reshape, shape, size_of, store,
+  tensor_equal, tlen, to_bitarray, to_diff, to_dual, to_tensor, tref, trefs,
+  unwrap_ok_number, unwrap_ok_number2,
 }
 import gleam/bit_array
 import gleam/bool
@@ -921,7 +921,7 @@ pub fn d_multiply_2_1_test() {
       |> dynamic.from
       |> to_tensor
 
-    d_multiply_2_1_numeric(a, b)
+    multiply_2_1_numeric(a, b)
     |> tensor_should_equal(
       [[6, 12, 20, 30], [14, 24, 36, 50]] |> dynamic.from |> to_tensor,
     )
@@ -947,7 +947,7 @@ pub fn d_multiply_2_1_test() {
       |> dynamic.from
       |> to_tensor
 
-    d_multiply_2_1_numeric(a, b)
+    multiply_2_1_numeric(a, b)
     |> tensor_should_equal(
       [
         [[6, 12, 20, 30], [14, 24, 36, 50]],
@@ -1081,4 +1081,33 @@ pub fn sum_test() {
         |> tensors_to_differentiable,
     )
   }
+}
+
+pub fn d_argmax_test() {
+  { d_argmax |> check_theta_and_gradient1 }(
+    [0, 0, 1, 0] |> dynamic.from |> to_tensor,
+    float_to_tensor(2.0),
+    [[0, 0, 0, 0] |> dynamic.from |> to_tensor]
+      |> tensors_to_differentiable,
+  )
+
+  argmax_numeric(
+    [[0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1]]
+    |> dynamic.from
+    |> to_tensor,
+  )
+  |> tensor_should_equal([2, 1, 0, 3] |> dynamic.from |> to_tensor)
+
+  { d_argmax |> check_theta_and_gradient1 }(
+    [[0, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1]]
+      |> dynamic.from
+      |> to_tensor,
+    [2, 1, 0, 3] |> dynamic.from |> to_tensor,
+    [
+      [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+      |> dynamic.from
+      |> to_tensor,
+    ]
+      |> tensors_to_differentiable,
+  )
 }

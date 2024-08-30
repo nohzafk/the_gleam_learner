@@ -1394,7 +1394,7 @@ pub fn d_multiply_2_1(da, db) {
   { multiply_2_1() |> ext2(2, 1) }(da, db)
 }
 
-pub fn d_multiply_2_1_numeric(t, u) {
+pub fn multiply_2_1_numeric(t, u) {
   let f =
     extend_rank2_numeric(multiply_2_1_base_numeric, 2, 1, default_shape_fn_2)
   f(t, u)
@@ -1442,10 +1442,69 @@ pub fn sum_1() {
   )
 }
 
-pub fn d_sum(t) {
-  { sum_1() |> ext1(1) }(t)
+pub fn d_sum(da) {
+  { sum_1() |> ext1(1) }(da)
 }
 
-pub fn d_sum_numeric(t) {
+pub fn sum_numeric(t) {
   extend_rank1_numeric(sum_1_numeric, 1, sum_shape)(t)
+}
+
+//----------------------------
+// E-argmax
+//----------------------------
+
+pub fn argmax_1_numeric(
+  v0: BitArray,
+  offset: Int,
+  stride0: Int,
+  v_out: BitArray,
+  _i_out: Int,
+  _stride_out: Int,
+) -> BitArray {
+
+  let #(max_i, _) =
+    list.index_fold(list.range(0, stride0 - 1), #(-1.0, 0.0), fn(acc, i, _) {
+      let #(_, max_val) = acc
+      let v = get_float(v0, offset / 8 + i)
+      case v >. max_val {
+        True -> #(int.to_float(i), v)
+        False -> acc
+      }
+    })
+
+  <<v_out:bits, max_i:float>>
+}
+
+pub fn argmax_1_gradient(
+  g0: BitArray,
+  _v0: BitArray,
+  i0: Int,
+  stride0: Int,
+  _vz: BitArray,
+  _iz: Int,
+  _stride_z: Int,
+) -> BitArray {
+  let new_slice = list.repeat(0.0, stride0) |> to_bitarray
+  bitarray_replace_slice(g0, i0, stride0, new_slice)
+}
+
+pub fn argmax_shape(_st: Shape) -> Shape {
+  []
+}
+
+pub fn argmax_1() -> Prim1Fn {
+  Prim1BitArrayFn(
+    numeric_fn: argmax_1_numeric,
+    gradient_fn: argmax_1_gradient,
+    shape_fn: argmax_shape,
+  )
+}
+
+pub fn d_argmax(da) {
+  { argmax_1() |> ext1(1) }(da)
+}
+
+pub fn argmax_numeric(t: Tensor) -> Tensor {
+  extend_rank1_numeric(argmax_1_numeric, 1, argmax_shape)(t)
 }
