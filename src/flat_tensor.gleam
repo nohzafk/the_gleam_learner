@@ -1462,7 +1462,6 @@ pub fn argmax_1_numeric(
   _i_out: Int,
   _stride_out: Int,
 ) -> BitArray {
-
   let #(max_i, _) =
     list.index_fold(list.range(0, stride0 - 1), #(-1.0, 0.0), fn(acc, i, _) {
       let #(_, max_val) = acc
